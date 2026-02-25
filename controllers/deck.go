@@ -201,62 +201,62 @@ func GetDeckCount(ctx context.Context, gameID string) (int64, error) {
 }
 
 // PlayerHandKey 玩家手牌在 Redis 中的 key 格式
-// playerIndex: 0-3 對應 player1-player4
-func PlayerHandKey(gameID string, playerIndex int) string {
-	return fmt.Sprintf("game:%s:player%d", gameID, playerIndex+1)
+// playerID: 1-4 對應 player1-player4
+func PlayerHandKey(gameID string, playerID int) string {
+	return fmt.Sprintf("game:%s:player%d", gameID, playerID)
 }
 
 // DealTiles 發牌：從 Redis 牌堆 RPOP，按麻將規則輪流發給 4 位玩家
 // 發牌順序：
 //  1. 輪流摸 4 張 × 3 輪 = 每人 12 張
 //  2. 每人再摸 1 張 = 每人 13 張
-//  3. 莊家 (player1, index=0) 再摸 1 張開門 = 莊家 14 張
+//  3. 莊家 (1-4 目前假設 1 號為開發預設) 再摸 1 張開門 = 莊家 14 張
 //
 // 每張牌用 RPOP 從牌堆取出，LPUSH 放入對應玩家的 Redis list
-func DealTiles(ctx context.Context, gameID string) error {
+func DealTiles(ctx context.Context, gameID string, dealerPlayerID int) error {
 	rdb := service.RedisClient
 	deckKey := DeckRedisKey(gameID)
 
 	// 先清除舊的玩家手牌
-	for p := 0; p < 4; p++ {
+	for p := 1; p <= 4; p++ {
 		playerKey := PlayerHandKey(gameID, p)
 		if err := rdb.Del(ctx, playerKey).Err(); err != nil {
-			return fmt.Errorf("failed to clear player%d hand: %w", p+1, err)
+			return fmt.Errorf("failed to clear player%d hand: %w", p, err)
 		}
 	}
 
 	// ----- 第一階段：輪流摸 4 張 × 3 輪 -----
 	for round := 0; round < 3; round++ {
-		for p := 0; p < 4; p++ {
+		for p := 1; p <= 4; p++ {
 			playerKey := PlayerHandKey(gameID, p)
 			for t := 0; t < 4; t++ {
 				// RPOP 從牌堆尾端取一張牌
 				data, err := rdb.RPop(ctx, deckKey).Result()
 				if err != nil {
-					return fmt.Errorf("round %d, player%d, tile %d: RPOP failed: %w", round+1, p+1, t+1, err)
+					return fmt.Errorf("round %d, player%d, tile %d: RPOP failed: %w", round+1, p, t+1, err)
 				}
 				// LPUSH 放入玩家手牌
 				if err := rdb.LPush(ctx, playerKey, data).Err(); err != nil {
-					return fmt.Errorf("round %d, player%d, tile %d: LPUSH failed: %w", round+1, p+1, t+1, err)
+					return fmt.Errorf("round %d, player%d, tile %d: LPUSH failed: %w", round+1, p, t+1, err)
 				}
 			}
 		}
 	}
 
 	// ----- 第二階段：每人再摸 1 張 -----
-	for p := 0; p < 4; p++ {
+	for p := 1; p <= 4; p++ {
 		playerKey := PlayerHandKey(gameID, p)
 		data, err := rdb.RPop(ctx, deckKey).Result()
 		if err != nil {
-			return fmt.Errorf("final draw, player%d: RPOP failed: %w", p+1, err)
+			return fmt.Errorf("final draw, player%d: RPOP failed: %w", p, err)
 		}
 		if err := rdb.LPush(ctx, playerKey, data).Err(); err != nil {
-			return fmt.Errorf("final draw, player%d: LPUSH failed: %w", p+1, err)
+			return fmt.Errorf("final draw, player%d: LPUSH failed: %w", p, err)
 		}
 	}
 
-	// ----- 第三階段：莊家 (player1) 再摸 1 張開門 -----
-	dealerKey := PlayerHandKey(gameID, 0)
+	// ----- 第三階段：莊家再摸 1 張開門 -----
+	dealerKey := PlayerHandKey(gameID, dealerPlayerID)
 	data, err := rdb.RPop(ctx, deckKey).Result()
 	if err != nil {
 		return fmt.Errorf("dealer open tile: RPOP failed: %w", err)
@@ -266,9 +266,9 @@ func DealTiles(ctx context.Context, gameID string) error {
 	}
 
 	// ----- 第四階段：理牌（排序每位玩家的手牌）-----
-	for p := 0; p < 4; p++ {
+	for p := 1; p <= 4; p++ {
 		if err := SortPlayerHand(ctx, gameID, p); err != nil {
-			return fmt.Errorf("sort player%d hand failed: %w", p+1, err)
+			return fmt.Errorf("sort player%d hand failed: %w", p, err)
 		}
 	}
 
@@ -276,14 +276,14 @@ func DealTiles(ctx context.Context, gameID string) error {
 }
 
 // SortPlayerHand 理牌：讀取玩家在 Redis 中的所有手牌，排序後重新寫回
-func SortPlayerHand(ctx context.Context, gameID string, playerIndex int) error {
+func SortPlayerHand(ctx context.Context, gameID string, playerID int) error {
 	rdb := service.RedisClient
-	playerKey := PlayerHandKey(gameID, playerIndex)
+	playerKey := PlayerHandKey(gameID, playerID)
 
 	// 1. 讀取所有手牌 JSON
 	tileJSONs, err := rdb.LRange(ctx, playerKey, 0, -1).Result()
 	if err != nil {
-		return fmt.Errorf("failed to read player%d hand: %w", playerIndex+1, err)
+		return fmt.Errorf("failed to read player%d hand: %w", playerID, err)
 	}
 
 	// 2. 反序列化為 Tile 切片
@@ -301,7 +301,7 @@ func SortPlayerHand(ctx context.Context, gameID string, playerIndex int) error {
 
 	// 4. 清除原有 list，重新寫入排序後的手牌
 	if err := rdb.Del(ctx, playerKey).Err(); err != nil {
-		return fmt.Errorf("failed to clear player%d hand for re-sort: %w", playerIndex+1, err)
+		return fmt.Errorf("failed to clear player%d hand for re-sort: %w", playerID, err)
 	}
 
 	sortedJSONs := make([]interface{}, len(tiles))
@@ -322,12 +322,12 @@ func SortPlayerHand(ctx context.Context, gameID string, playerIndex int) error {
 }
 
 // GetPlayerHand 取得玩家的手牌
-func GetPlayerHand(ctx context.Context, gameID string, playerIndex int) ([]models.Tile, error) {
-	playerKey := PlayerHandKey(gameID, playerIndex)
+func GetPlayerHand(ctx context.Context, gameID string, playerID int) ([]models.Tile, error) {
+	playerKey := PlayerHandKey(gameID, playerID)
 
 	tileJSONs, err := service.RedisClient.LRange(ctx, playerKey, 0, -1).Result()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get player%d hand: %w", playerIndex+1, err)
+		return nil, fmt.Errorf("failed to get player%d hand: %w", playerID, err)
 	}
 
 	tiles := make([]models.Tile, 0, len(tileJSONs))
@@ -346,7 +346,7 @@ func GetPlayerHand(ctx context.Context, gameID string, playerIndex int) ([]model
 func GetAllPlayersHands(ctx context.Context, gameID string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 
-	for p := 0; p < 4; p++ {
+	for p := 1; p <= 4; p++ {
 		tiles, err := GetPlayerHand(ctx, gameID, p)
 		if err != nil {
 			return nil, err
@@ -358,7 +358,7 @@ func GetAllPlayersHands(ctx context.Context, gameID string) (map[string]interfac
 			tileNames[i] = t.String()
 		}
 
-		playerKey := fmt.Sprintf("player%d", p+1)
+		playerKey := fmt.Sprintf("player%d", p)
 		result[playerKey] = map[string]interface{}{
 			"count":      len(tiles),
 			"tiles":      tiles,

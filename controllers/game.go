@@ -31,19 +31,19 @@ func RollDice() (models.DiceResult, error) {
 	}, nil
 }
 
-// DetermineDealerByDice 根據擲骰結果決定莊家座位
+// DetermineDealerByDice 根據擲骰結果決定莊家玩家代號 (1-4)
 // 骰子點數總和對 4 取餘：
 //
-//	1 → 座位 0 (東/player1)
-//	2 → 座位 1 (南/player2)
-//	3 → 座位 2 (西/player3)
-//	0 → 座位 3 (北/player4)
+//	1 → 玩家 1 (東)
+//	2 → 玩家 2 (南)
+//	3 → 玩家 3 (西)
+//	0 → 玩家 4 (北)
 func DetermineDealerByDice(diceTotal int) int {
 	seat := diceTotal % 4
 	if seat == 0 {
 		seat = 4
 	}
-	return seat - 1 // 轉為 0-indexed
+	return seat
 }
 
 // SaveGameState 儲存遊戲狀態到 Redis
@@ -89,17 +89,17 @@ func StartNewGame(ctx context.Context, gameID string) (*models.GameState, error)
 		return nil, fmt.Errorf("dice roll failed: %w", err)
 	}
 
-	// 2. 決定莊家座位
-	dealerSeat := DetermineDealerByDice(dice.Total)
+	// 2. 決定莊家玩家 ID
+	dealerPlayerID := DetermineDealerByDice(dice.Total)
 
 	// 3. 建立遊戲狀態
 	state := &models.GameState{
-		GameID:     gameID,
-		Round:      models.NewFirstRound(), // 東風東 (1-1)
-		DealerSeat: dealerSeat,
-		Dice:       dice,
-		IsStarted:  true,
-		IsFinished: false,
+		GameID:         gameID,
+		Round:          models.NewFirstRound(), // 東風東 (1-1)
+		DealerPlayerID: dealerPlayerID,
+		Dice:           dice,
+		IsStarted:      true,
+		IsFinished:     false,
 	}
 
 	// 4. 儲存狀態
@@ -112,8 +112,8 @@ func StartNewGame(ctx context.Context, gameID string) (*models.GameState, error)
 		return nil, fmt.Errorf("init deck failed: %w", err)
 	}
 
-	// 6. 發牌（以莊家座位為起始）
-	if err := DealTilesFromSeat(ctx, gameID, dealerSeat); err != nil {
+	// 6. 發牌（以莊家玩家 ID 為起始）
+	if err := DealTilesFromSeat(ctx, gameID, dealerPlayerID); err != nil {
 		return nil, fmt.Errorf("deal tiles failed: %w", err)
 	}
 
@@ -142,9 +142,9 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 		return state, true, nil // 一將結束
 	}
 
-	// 3. 更新局號，莊家座位順轉（下家做莊）
+	// 3. 更新局號，莊家順轉（下家做莊）
 	state.Round = nextRound
-	state.DealerSeat = (state.DealerSeat + 1) % 4
+	state.DealerPlayerID = (state.DealerPlayerID % 4) + 1
 
 	// 4. 儲存更新後的狀態
 	if err := SaveGameState(ctx, state); err != nil {
@@ -157,33 +157,33 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 	}
 
 	// 6. 發牌
-	if err := DealTilesFromSeat(ctx, gameID, state.DealerSeat); err != nil {
+	if err := DealTilesFromSeat(ctx, gameID, state.DealerPlayerID); err != nil {
 		return nil, false, fmt.Errorf("deal tiles failed: %w", err)
 	}
 
 	return state, false, nil
 }
 
-// DealTilesFromSeat 從指定莊家座位開始發牌
+// DealTilesFromSeat 從指定莊家玩家 ID 開始發牌
 // 發牌順序以莊家為起始，逆時針輪流 (莊→下家→對家→上家)
-// 座位順序: dealerSeat, (dealer+1)%4, (dealer+2)%4, (dealer+3)%4
-func DealTilesFromSeat(ctx context.Context, gameID string, dealerSeat int) error {
+// 座位順序: dealerPlayerID, dealerPlayerID下家 等 (1-4循環)
+func DealTilesFromSeat(ctx context.Context, gameID string, dealerPlayerID int) error {
 	rdb := service.RedisClient
 	deckKey := DeckRedisKey(gameID)
 
 	// 計算發牌順序
 	order := [4]int{
-		dealerSeat,
-		(dealerSeat + 1) % 4,
-		(dealerSeat + 2) % 4,
-		(dealerSeat + 3) % 4,
+		dealerPlayerID,
+		(dealerPlayerID % 4) + 1,
+		((dealerPlayerID + 1) % 4) + 1,
+		((dealerPlayerID + 2) % 4) + 1,
 	}
 
 	// 先清除舊的玩家手牌
 	for _, p := range order {
 		playerKey := PlayerHandKey(gameID, p)
 		if err := rdb.Del(ctx, playerKey).Err(); err != nil {
-			return fmt.Errorf("failed to clear player%d hand: %w", p+1, err)
+			return fmt.Errorf("failed to clear player%d hand: %w", p, err)
 		}
 	}
 
@@ -194,10 +194,10 @@ func DealTilesFromSeat(ctx context.Context, gameID string, dealerSeat int) error
 			for t := 0; t < 4; t++ {
 				data, err := rdb.RPop(ctx, deckKey).Result()
 				if err != nil {
-					return fmt.Errorf("round %d, player%d, tile %d: RPOP failed: %w", round+1, p+1, t+1, err)
+					return fmt.Errorf("round %d, player%d, tile %d: RPOP failed: %w", round+1, p, t+1, err)
 				}
 				if err := rdb.LPush(ctx, playerKey, data).Err(); err != nil {
-					return fmt.Errorf("round %d, player%d, tile %d: LPUSH failed: %w", round+1, p+1, t+1, err)
+					return fmt.Errorf("round %d, player%d, tile %d: LPUSH failed: %w", round+1, p, t+1, err)
 				}
 			}
 		}
@@ -208,15 +208,15 @@ func DealTilesFromSeat(ctx context.Context, gameID string, dealerSeat int) error
 		playerKey := PlayerHandKey(gameID, p)
 		data, err := rdb.RPop(ctx, deckKey).Result()
 		if err != nil {
-			return fmt.Errorf("final draw, player%d: RPOP failed: %w", p+1, err)
+			return fmt.Errorf("final draw, player%d: RPOP failed: %w", p, err)
 		}
 		if err := rdb.LPush(ctx, playerKey, data).Err(); err != nil {
-			return fmt.Errorf("final draw, player%d: LPUSH failed: %w", p+1, err)
+			return fmt.Errorf("final draw, player%d: LPUSH failed: %w", p, err)
 		}
 	}
 
 	// ----- 第三階段：莊家再摸 1 張開門 -----
-	dealerKey := PlayerHandKey(gameID, dealerSeat)
+	dealerKey := PlayerHandKey(gameID, dealerPlayerID)
 	data, err := rdb.RPop(ctx, deckKey).Result()
 	if err != nil {
 		return fmt.Errorf("dealer open tile: RPOP failed: %w", err)
@@ -226,9 +226,9 @@ func DealTilesFromSeat(ctx context.Context, gameID string, dealerSeat int) error
 	}
 
 	// ----- 第四階段：理牌 -----
-	for p := 0; p < 4; p++ {
+	for p := 1; p <= 4; p++ {
 		if err := SortPlayerHand(ctx, gameID, p); err != nil {
-			return fmt.Errorf("sort player%d hand failed: %w", p+1, err)
+			return fmt.Errorf("sort player%d hand failed: %w", p, err)
 		}
 	}
 

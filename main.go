@@ -10,6 +10,7 @@ import (
 	"github.com/maoxiaoyue/hypgo/pkg/server"
 	"github.com/maoxiaoyue/hypgo/pkg/websocket"
 
+	"webmajiang/controllers"
 	"webmajiang/routers"
 	"webmajiang/service"
 )
@@ -74,6 +75,7 @@ func main() {
 		},
 		func(client *websocket.Client, msg *websocket.Message) {
 			log.Debug("Message from %s: type=%s", client.ID, msg.Type)
+			controllers.HandleWebSocketMessage(client, msg)
 		},
 	)
 
