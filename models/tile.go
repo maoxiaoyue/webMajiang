@@ -63,9 +63,63 @@ var FlowerName = map[int]string{
 
 // Tile 牌結構體
 type Tile struct {
-	ID    int      `json:"id"`    // 唯一 ID (0-143)
+	ID    int      `json:"id"`    // 唯一 ID (1-144)
 	Type  TileType `json:"type"`  // 類型
 	Value int      `json:"value"` // 數值 (萬筒條: 1-9，風: 1-4，元: 1-3，花: 1-8)
+}
+
+// GenerateAllTiles 產生並回傳所有 144 張牌的對應 Map，包含編號 1 到 144，符合排列順序：萬、筒、條、風、元、花。
+func GenerateAllTiles() map[int]Tile {
+	tiles := make(map[int]Tile)
+	id := 1
+
+	// 萬 (ID: 1-36，1-9萬每種4張)
+	for value := 1; value <= 9; value++ {
+		for i := 0; i < 4; i++ {
+			tiles[id] = Tile{ID: id, Type: Wan, Value: value}
+			id++
+		}
+	}
+
+	// 筒 (ID: 37-72，1-9筒每種4張)
+	for value := 1; value <= 9; value++ {
+		for i := 0; i < 4; i++ {
+			tiles[id] = Tile{ID: id, Type: Tong, Value: value}
+			id++
+		}
+	}
+
+	// 條 (ID: 73-108，1-9條每種4張)
+	for value := 1; value <= 9; value++ {
+		for i := 0; i < 4; i++ {
+			tiles[id] = Tile{ID: id, Type: Tiao, Value: value}
+			id++
+		}
+	}
+
+	// 風 (ID: 109-124，東南西北每種4張)
+	for value := 1; value <= 4; value++ {
+		for i := 0; i < 4; i++ {
+			tiles[id] = Tile{ID: id, Type: Wind, Value: value}
+			id++
+		}
+	}
+
+	// 元 (ID: 125-136，中發白每種4張)
+	for value := 1; value <= 3; value++ {
+		for i := 0; i < 4; i++ {
+			tiles[id] = Tile{ID: id, Type: Dragon, Value: value}
+			id++
+		}
+	}
+
+	// 花 (ID: 137-144，梅蘭竹菊春夏秋冬各1張)
+	for value := 1; value <= 8; value++ {
+		tiles[id] = Tile{ID: id, Type: Flower, Value: value}
+		id++
+	}
+
+	return tiles
 }
 
 // String 回傳牌的可讀名稱
