@@ -115,10 +115,11 @@ type DiceResult struct {
 
 // GameState 完整遊戲狀態（存放在 Redis 中）
 type GameState struct {
-	GameID         string     `json:"game_id"`
-	Round          GameRound  `json:"round"`            // 目前局號
-	DealerPlayerID int        `json:"dealer_player_id"` // 莊家玩家代號 (1-4)
-	Dice           DiceResult `json:"dice"`             // 擲骰子結果
-	IsStarted      bool       `json:"is_started"`       // 是否已開始
-	IsFinished     bool       `json:"is_finished"`      // 一將是否結束
+	GameID         string         `json:"game_id"`
+	Round          GameRound      `json:"round"`            // 目前局號
+	DealerPlayerID int            `json:"dealer_player_id"` // 莊家玩家代號 (1-4)
+	Dice           DiceResult     `json:"dice"`             // 擲骰子結果
+	IsStarted      bool           `json:"is_started"`       // 是否已開始
+	IsFinished     bool           `json:"is_finished"`      // 一將是否結束
+	Players        map[int]Player `json:"players"`          // 玩家列表 (SeatID 1-4 對應 -> Player)
 }

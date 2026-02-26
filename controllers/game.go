@@ -100,7 +100,15 @@ func StartNewGame(ctx context.Context, gameID string) (*models.GameState, error)
 		Dice:           dice,
 		IsStarted:      true,
 		IsFinished:     false,
+		Players:        make(map[int]models.Player),
 	}
+
+	// 3.5 TODO: 這裡理想情況下應該從資料庫/房間系統讀取已加入的真人玩家
+	// 由於尚未串接房間玩家系統，目前先暫時設定為「Seat 1 為真人玩家，Seat 2,3,4 為 AI 玩家」
+	state.Players[1] = models.Player{ID: 1, Name: "真人玩家1", IsBot: false, Hand: []models.Tile{}}
+	state.Players[2] = models.Player{ID: 2, Name: "AI 電腦1", IsBot: true, Hand: []models.Tile{}}
+	state.Players[3] = models.Player{ID: 3, Name: "AI 電腦2", IsBot: true, Hand: []models.Tile{}}
+	state.Players[4] = models.Player{ID: 4, Name: "AI 電腦3", IsBot: true, Hand: []models.Tile{}}
 
 	// 4. 儲存狀態
 	if err := SaveGameState(ctx, state); err != nil {

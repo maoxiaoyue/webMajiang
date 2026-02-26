@@ -144,9 +144,10 @@ func (t Tile) String() string {
 
 // Player 玩家結構體
 type Player struct {
-	ID   int    `json:"id"`   // 玩家編號 (0-3)
-	Name string `json:"name"` // 玩家名稱
-	Hand []Tile `json:"hand"` // 手牌
+	ID    int    `json:"id"`    // 玩家編號 (0-3)
+	Name  string `json:"name"`  // 玩家名稱
+	IsBot bool   `json:"isBot"` // 是否為 AI 自動玩家
+	Hand  []Tile `json:"hand"`  // 手牌
 }
 
 // Game 遊戲狀態結構體
