@@ -1,0 +1,16 @@
+server:
+  addr: ":8080"
+  protocol: "http1"
+  read_timeout: 30s
+  write_timeout: 30s
+  enable_graceful_restart: true
+
+logger:
+  level: "debug"
+  output: "stdout"
+  color_enabled: true
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
