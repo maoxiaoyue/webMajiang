@@ -78,95 +78,131 @@ func LoadGameState(ctx context.Context, gameID string) (*models.GameState, error
 }
 
 // StartNewGame 開始新的一將（第一局）
-// 1. 建立遊戲狀態 (東風東 1-1)
-// 2. 擲骰子決定第一局莊家
-// 3. 初始化牌堆 → 洗牌 → LPUSH 到 Redis
-// 4. 發牌 + 理牌
+// 初始化遊戲狀態，並進入 StageWaitingPlayers 階段
 func StartNewGame(ctx context.Context, gameID string) (*models.GameState, error) {
-	// 1. 擲骰子
-	dice, err := RollDice()
-	if err != nil {
-		return nil, fmt.Errorf("dice roll failed: %w", err)
-	}
-
-	// 2. 決定莊家玩家 ID
-	dealerPlayerID := DetermineDealerByDice(dice.Total)
-
-	// 3. 建立遊戲狀態
 	state := &models.GameState{
-		GameID:         gameID,
-		Round:          models.NewFirstRound(), // 東風東 (1-1)
-		DealerPlayerID: dealerPlayerID,
-		Dice:           dice,
-		IsStarted:      true,
-		IsFinished:     false,
-		Players:        make(map[int]models.Player),
+		GameID:          gameID,
+		Stage:           models.StageWaitingPlayers,
+		CurrentPlayerID: 0,
+		Round:           models.NewFirstRound(), // 東風東 (1-1)
+		DealerPlayerID:  0,
+		IsStarted:       true,
+		IsFinished:      false,
+		Players:         make(map[int]models.Player),
 	}
 
-	// 3.5 TODO: 這裡理想情況下應該從資料庫/房間系統讀取已加入的真人玩家
-	// 由於尚未串接房間玩家系統，目前先暫時設定為「Seat 1 為真人玩家，Seat 2,3,4 為 AI 玩家」
+	// 暫時設定為「Seat 1 為真人玩家，Seat 2,3,4 為 AI 玩家」
 	state.Players[1] = models.Player{ID: 1, Name: "真人玩家1", IsBot: false, Hand: []models.Tile{}}
 	state.Players[2] = models.Player{ID: 2, Name: "AI 電腦1", IsBot: true, Hand: []models.Tile{}}
 	state.Players[3] = models.Player{ID: 3, Name: "AI 電腦2", IsBot: true, Hand: []models.Tile{}}
 	state.Players[4] = models.Player{ID: 4, Name: "AI 電腦3", IsBot: true, Hand: []models.Tile{}}
 
-	// 4. 儲存狀態
 	if err := SaveGameState(ctx, state); err != nil {
 		return nil, err
 	}
+	return state, nil
+}
 
-	// 5. 初始化牌堆
+// RollPositions 決定座位 (擲骰子)
+func RollPositions(ctx context.Context, gameID string) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+	if state.Stage != models.StageWaitingPlayers {
+		return nil, fmt.Errorf("action not allowed in current stage: %s", state.Stage)
+	}
+
+	dice, err := RollDice()
+	if err != nil {
+		return nil, err
+	}
+	state.Dice = dice
+	state.Stage = models.StageDetermineDealer // 進到決定莊家
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+// RollDealer 決定第一局莊家
+func RollDealer(ctx context.Context, gameID string) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+	if state.Stage != models.StageDetermineDealer {
+		return nil, fmt.Errorf("action not allowed in current stage: %s", state.Stage)
+	}
+
+	dice, err := RollDice()
+	if err != nil {
+		return nil, err
+	}
+	state.Dice = dice
+	state.DealerPlayerID = DetermineDealerByDice(dice.Total)
+	state.Stage = models.StageDealing // 準備發牌
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+// DealTilesAction 執行發牌流程 (含洗牌、發牌、理牌)
+func DealTilesAction(ctx context.Context, gameID string) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+	if state.Stage != models.StageDealing {
+		return nil, fmt.Errorf("action not allowed in current stage: %s", state.Stage)
+	}
+
 	if err := InitDeckToRedis(ctx, gameID); err != nil {
 		return nil, fmt.Errorf("init deck failed: %w", err)
 	}
 
-	// 6. 發牌（以莊家玩家 ID 為起始）
-	if err := DealTilesFromSeat(ctx, gameID, dealerPlayerID); err != nil {
+	if err := DealTilesFromSeat(ctx, gameID, state.DealerPlayerID); err != nil {
 		return nil, fmt.Errorf("deal tiles failed: %w", err)
 	}
 
+	// 莊家已拿 14 張，其他 13 張，故接下來換莊家打牌
+	state.Stage = models.StagePlayerDiscard
+	state.CurrentPlayerID = state.DealerPlayerID
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
 	return state, nil
 }
 
 // NextRound 進入下一局
-// 1. 讀取目前狀態
-// 2. 計算下一局局號
-// 3. 莊家輪轉（門風變更時莊家不變，連莊另外處理）
-// 4. 重新建牌堆 → 洗牌 → 發牌
 func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, error) {
-	// 1. 讀取目前狀態
 	state, err := LoadGameState(ctx, gameID)
 	if err != nil {
 		return nil, false, err
 	}
 
-	// 2. 計算下一局
 	nextRound, isComplete := state.Round.NextRound()
 	if isComplete {
 		state.IsFinished = true
+		state.Stage = models.StageGameOver
 		if err := SaveGameState(ctx, state); err != nil {
 			return nil, true, err
 		}
 		return state, true, nil // 一將結束
 	}
 
-	// 3. 更新局號，莊家順轉（下家做莊）
+	// 更新局號，莊家順轉（下家做莊）
 	state.Round = nextRound
 	state.DealerPlayerID = (state.DealerPlayerID % 4) + 1
+	state.Stage = models.StageDealing // 下一局回到洗牌/發牌階段
+	state.CurrentPlayerID = 0
 
-	// 4. 儲存更新後的狀態
 	if err := SaveGameState(ctx, state); err != nil {
 		return nil, false, err
-	}
-
-	// 5. 重新建牌堆
-	if err := InitDeckToRedis(ctx, gameID); err != nil {
-		return nil, false, fmt.Errorf("init deck failed: %w", err)
-	}
-
-	// 6. 發牌
-	if err := DealTilesFromSeat(ctx, gameID, state.DealerPlayerID); err != nil {
-		return nil, false, fmt.Errorf("deal tiles failed: %w", err)
 	}
 
 	return state, false, nil

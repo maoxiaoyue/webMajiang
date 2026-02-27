@@ -98,14 +98,42 @@ func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 			},
 		})
 
-	case "deal_tiles":
-		state, err := LoadGameState(ctx, gameID)
+	case "roll_positions":
+		state, err := RollPositions(ctx, gameID)
 		if err != nil {
-			sendWSError(client, "deal_tiles_response", "failed to load game state: "+err.Error())
+			sendWSError(client, "roll_positions_response", err.Error())
 			return
 		}
+		client.Hub.SendToClient(client.ID, WSResponse{
+			Type:    "roll_positions_response",
+			Message: "座位決定完成",
+			Data: map[string]interface{}{
+				"game_id": gameID,
+				"dice":    state.Dice,
+				"stage":   state.Stage,
+			},
+		})
 
-		if err := DealTiles(ctx, gameID, state.DealerPlayerID); err != nil {
+	case "roll_dealer":
+		state, err := RollDealer(ctx, gameID)
+		if err != nil {
+			sendWSError(client, "roll_dealer_response", err.Error())
+			return
+		}
+		client.Hub.SendToClient(client.ID, WSResponse{
+			Type:    "roll_dealer_response",
+			Message: "莊家決定完成",
+			Data: map[string]interface{}{
+				"game_id":          gameID,
+				"dice":             state.Dice,
+				"dealer_player_id": state.DealerPlayerID,
+				"stage":            state.Stage,
+			},
+		})
+
+	case "deal_tiles":
+		state, err := DealTilesAction(ctx, gameID)
+		if err != nil {
 			sendWSError(client, "deal_tiles_response", "failed to deal tiles: "+err.Error())
 			return
 		}
@@ -122,11 +150,21 @@ func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 			Type:    "deal_tiles_response",
 			Message: "發牌完成，已理牌",
 			Data: map[string]interface{}{
-				"game_id":        gameID,
-				"deck_remaining": remaining,
-				"players":        hands,
+				"game_id":           gameID,
+				"deck_remaining":    remaining,
+				"players":           hands,
+				"stage":             state.Stage,
+				"current_player_id": state.CurrentPlayerID,
 			},
 		})
+
+	case "discard_tile":
+		sendWSError(client, "discard_tile_response", "discard tile not fully implemented yet")
+		// To be fully implemented in game.go DiscardTile action
+
+	case "player_action":
+		sendWSError(client, "player_action_response", "player action not fully implemented yet")
+		// To be fully implemented in game.go PlayerAction action
 
 	case "get_hands":
 		hands, err := GetAllPlayersHands(ctx, gameID)

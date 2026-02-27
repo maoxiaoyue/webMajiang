@@ -113,13 +113,30 @@ type DiceResult struct {
 	Total int `json:"total"` // 點數總和
 }
 
+// GameStage 遊戲階段
+type GameStage string
+
+const (
+	StageWaitingPlayers     GameStage = "WAITING_PLAYERS"     // 等待玩家加入/準備
+	StageDeterminePositions GameStage = "DETERMINE_POSITIONS" // 開始 -> 擲骰子決定位置
+	StageDetermineDealer    GameStage = "DETERMINE_DEALER"    // 坐下後擲骰子決定東風位置
+	StageDealing            GameStage = "DEALING"             // 第一局開始取牌/發牌
+	StagePlayerDraw         GameStage = "PLAYER_DRAW"         // 玩家摸牌階段 (包含開門)
+	StagePlayerDiscard      GameStage = "PLAYER_DISCARD"      // 玩家出牌階段
+	StageWaitAction         GameStage = "WAIT_ACTION"         // 等待其他家宣告 (碰/槓/胡)
+	StageRoundOver          GameStage = "ROUND_OVER"          // 單局結算
+	StageGameOver           GameStage = "GAME_OVER"           // 遊戲終局
+)
+
 // GameState 完整遊戲狀態（存放在 Redis 中）
 type GameState struct {
-	GameID         string         `json:"game_id"`
-	Round          GameRound      `json:"round"`            // 目前局號
-	DealerPlayerID int            `json:"dealer_player_id"` // 莊家玩家代號 (1-4)
-	Dice           DiceResult     `json:"dice"`             // 擲骰子結果
-	IsStarted      bool           `json:"is_started"`       // 是否已開始
-	IsFinished     bool           `json:"is_finished"`      // 一將是否結束
-	Players        map[int]Player `json:"players"`          // 玩家列表 (SeatID 1-4 對應 -> Player)
+	GameID          string         `json:"game_id"`
+	Stage           GameStage      `json:"stage"`             // 目前遊戲階段
+	CurrentPlayerID int            `json:"current_player_id"` // 目前輪到的玩家代號 (1-4)
+	Round           GameRound      `json:"round"`             // 目前局號
+	DealerPlayerID  int            `json:"dealer_player_id"`  // 莊家玩家代號 (1-4)
+	Dice            DiceResult     `json:"dice"`              // 擲骰子結果
+	IsStarted       bool           `json:"is_started"`        // 是否已開始
+	IsFinished      bool           `json:"is_finished"`       // 一將是否結束
+	Players         map[int]Player `json:"players"`           // 玩家列表 (SeatID 1-4 對應 -> Player)
 }

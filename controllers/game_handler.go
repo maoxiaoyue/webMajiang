@@ -24,27 +24,12 @@ func StartGameHandler(c *hypcontext.Context) {
 		return
 	}
 
-	hands, err := GetAllPlayersHands(ctx, gameID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error":   "failed to get hands",
-			"message": err.Error(),
-		})
-		return
-	}
-
-	remaining, _ := GetDeckCount(ctx, gameID)
-
 	c.JSON(http.StatusOK, map[string]interface{}{
-		"message":          "遊戲已開始，發牌完成，已理牌",
-		"game_id":          gameID,
-		"round":            state.Round.RoundLabel(),
-		"round_code":       state.Round.RoundCode(),
-		"round_number":     state.Round.RoundNumber(),
-		"dice":             state.Dice,
-		"dealer_player_id": state.DealerPlayerID,
-		"dealer_player":    fmt.Sprintf("player%d", state.DealerPlayerID),
-		"deck_remaining":   remaining,
-		"players":          hands,
+		"message":      "遊戲初始化完成，等待進入 WebSocket 進行後續階段",
+		"game_id":      gameID,
+		"stage":        state.Stage,
+		"round":        state.Round.RoundLabel(),
+		"round_code":   state.Round.RoundCode(),
+		"round_number": state.Round.RoundNumber(),
 	})
 }
