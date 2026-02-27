@@ -171,10 +171,139 @@ func DealTilesAction(ctx context.Context, gameID string) (*models.GameState, err
 	// 莊家已拿 14 張，其他 13 張，故接下來換莊家打牌
 	state.Stage = models.StagePlayerDiscard
 	state.CurrentPlayerID = state.DealerPlayerID
+	state.ActionDeclarations = make(map[int]string)
 
 	if err := SaveGameState(ctx, state); err != nil {
 		return nil, err
 	}
+	return state, nil
+}
+
+// DiscardTileAction 玩家出牌
+func DiscardTileAction(ctx context.Context, gameID string, playerID int, tile models.Tile) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+
+	if state.Stage != models.StagePlayerDiscard {
+		return nil, fmt.Errorf("action not allowed in current stage: %s", state.Stage)
+	}
+
+	if state.CurrentPlayerID != playerID {
+		return nil, fmt.Errorf("not your turn to discard, current player is %d", state.CurrentPlayerID)
+	}
+
+	// 1. 從玩家手牌中移除該牌
+	if err := RemoveTileFromPlayerHand(ctx, gameID, playerID, tile); err != nil {
+		return nil, fmt.Errorf("failed to discard tile: %w", err)
+	}
+
+	// 2. 更新狀態機
+	state.LastDiscardTile = &tile
+	state.LastDiscardPlayerID = playerID
+	state.ActionDeclarations = make(map[int]string) // 重置各家宣告
+	state.Stage = models.StageWaitAction
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+// PlayerDeclareAction 玩家宣告 (吃/碰/槓/胡/放棄)
+func PlayerDeclareAction(ctx context.Context, gameID string, playerID int, action string) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+
+	if state.Stage != models.StageWaitAction {
+		return nil, fmt.Errorf("action not allowed in current stage: %s", state.Stage)
+	}
+
+	if playerID == state.LastDiscardPlayerID {
+		return nil, fmt.Errorf("cannot declare action on your own discard")
+	}
+
+	// 紀錄宣告
+	if state.ActionDeclarations == nil {
+		state.ActionDeclarations = make(map[int]string)
+	}
+	state.ActionDeclarations[playerID] = action
+
+	// 檢查是否所有其他玩家都宣告了，或者有人直接胡了 (胡最大)
+	allDeclared := len(state.ActionDeclarations) == 3
+	hasHu := false
+	for _, a := range state.ActionDeclarations {
+		if a == "hu" {
+			hasHu = true
+			break
+		}
+	}
+
+	// 如果有人宣告 "hu" 或者所有人都表態了，進行結算
+	if hasHu || allDeclared {
+		state, err = ResolveActions(ctx, state)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+// ResolveActions 結算吃碰槓胡優先權
+func ResolveActions(ctx context.Context, state *models.GameState) (*models.GameState, error) {
+	// 優先權：hu > kong/pong > chow > pass
+	// 由於需要找得標者，我們定義 Priority
+	var highestPriority int = -1
+	var winnerID int = -1
+	var winningAction string = "pass"
+
+	priorityMap := map[string]int{
+		"pass": 0,
+		"chow": 1,
+		"pong": 2,
+		"kong": 3,
+		"hu":   4,
+	}
+
+	for pID, action := range state.ActionDeclarations {
+		p := priorityMap[action]
+		if p > highestPriority {
+			highestPriority = p
+			winnerID = pID
+			winningAction = action
+		}
+	}
+
+	if winningAction == "hu" {
+		// 有人胡牌，進入結算階段
+		state.Stage = models.StageRoundOver
+		state.CurrentPlayerID = winnerID // 讓客戶端知道誰胡了
+		return state, nil
+	}
+
+	if winningAction == "kong" || winningAction == "pong" || winningAction == "chow" {
+		// TODO: 將 LastDiscardTile 放入得標者的副露區 (目前沒寫副露邏輯)
+		// ... 執行吃碰邏輯 ...
+
+		state.Stage = models.StagePlayerDiscard // 碰/吃完要打一張牌
+		state.CurrentPlayerID = winnerID
+		state.LastDiscardTile = nil
+		return state, nil
+	}
+
+	// Todos Pass: 無人要牌，輪到下家摸牌
+	nextPlayerID := (state.LastDiscardPlayerID % 4) + 1
+	state.Stage = models.StagePlayerDraw
+	state.CurrentPlayerID = nextPlayerID
+	state.LastDiscardTile = nil // 已成廢牌
+
 	return state, nil
 }
 

@@ -342,6 +342,65 @@ func GetPlayerHand(ctx context.Context, gameID string, playerID int) ([]models.T
 	return tiles, nil
 }
 
+// RemoveTileFromPlayerHand 從玩家手牌中移除特定的一張牌
+func RemoveTileFromPlayerHand(ctx context.Context, gameID string, playerID int, targetTile models.Tile) error {
+	rdb := service.RedisClient
+	playerKey := PlayerHandKey(gameID, playerID)
+
+	// 1. 讀取所有手牌
+	tileJSONs, err := rdb.LRange(ctx, playerKey, 0, -1).Result()
+	if err != nil {
+		return fmt.Errorf("failed to read player%d hand: %w", playerID, err)
+	}
+
+	// 2. 找到並移除指定的牌 (只移除一張)
+	removed := false
+	remainingTiles := make([]models.Tile, 0, len(tileJSONs)-1)
+
+	for _, tj := range tileJSONs {
+		var tile models.Tile
+		if err := json.Unmarshal([]byte(tj), &tile); err != nil {
+			return fmt.Errorf("failed to unmarshal tile: %w", err)
+		}
+
+		// 比對 Type 和 Value 即可，因為 ID 是唯一對應特定的實體牌
+		// 我們比對 ID 也行，確保移除的那張就是他在畫面上點擊的
+		if !removed && tile.ID == targetTile.ID {
+			removed = true
+			continue // 跳過這張牌，不加入 remainingTiles
+		}
+		remainingTiles = append(remainingTiles, tile)
+	}
+
+	if !removed {
+		return fmt.Errorf("tile not found in player hand")
+	}
+
+	// 3. 重新寫回 Redis (已移除指定的牌)
+	// 先清除原有 list
+	if err := rdb.Del(ctx, playerKey).Err(); err != nil {
+		return fmt.Errorf("failed to clear player%d hand for removal: %w", playerID, err)
+	}
+
+	// 寫入剩餘的牌
+	if len(remainingTiles) > 0 {
+		sortedJSONs := make([]interface{}, len(remainingTiles))
+		for i, tile := range remainingTiles {
+			data, err := json.Marshal(tile)
+			if err != nil {
+				return fmt.Errorf("failed to marshal remaining tile: %w", err)
+			}
+			sortedJSONs[i] = string(data)
+		}
+
+		if err := rdb.RPush(ctx, playerKey, sortedJSONs...).Err(); err != nil {
+			return fmt.Errorf("failed to write remaining hand: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // GetAllPlayersHands 取得所有玩家的手牌（含牌名）
 func GetAllPlayersHands(ctx context.Context, gameID string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
