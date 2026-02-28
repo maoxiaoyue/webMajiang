@@ -6,6 +6,7 @@ require (
 	github.com/maoxiaoyue/hypgo v0.6.5
 	github.com/redis/go-redis/v9 v9.18.0
 	golang.org/x/crypto v0.48.0
+	google.golang.org/protobuf v1.36.8
 )
 
 require (
