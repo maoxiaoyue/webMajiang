@@ -1,4 +1,5 @@
 import { EventMgr } from '../Events/EventMgr';
+import * as pb from './mahjong_pb';
 
 export class NetworkMgr {
     private static _instance: NetworkMgr = null!;
@@ -36,6 +37,7 @@ export class NetworkMgr {
         this.url = url;
         console.log(`[NetworkMgr] 嘗試連線至: ${this.url}`);
         this.ws = new WebSocket(url);
+        this.ws.binaryType = "arraybuffer"; // 使用二進位傳輸
 
         this.ws.onopen = this.onOpen.bind(this);
         this.ws.onmessage = this.onMessage.bind(this);
@@ -53,7 +55,9 @@ export class NetworkMgr {
     }
 
     /**
-     * 傳送 JSON 資料給伺服器
+     * 傳送資料給伺服器
+     * @param action 對應的 action (如 "player_action", "join_room")
+     * @param data 一個 Uint8Array 的 payload，或者是可以直接帶入的 JSON 讓對應的 proto 產生
      */
     public send(action: string, data: any = {}) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -61,13 +65,28 @@ export class NetworkMgr {
             return false;
         }
 
-        const payload = {
-            action: action,
-            data: data
-        };
+        // 必須把傳入的 JS Object 依照 action 名稱轉出對應的 Uint8Array data (例如 JoinRoomReq)
+        let innerData = new Uint8Array();
+        try {
+            if (action === "join_room") {
+                innerData = pb.JoinRoomReq.encode(pb.JoinRoomReq.create(data)).finish();
+            } else if (action === "discard_tile" || action === "player_action") {
+                // 若兩者共用 pb.PlayerActionData
+                innerData = pb.PlayerActionData.encode(pb.PlayerActionData.create(data)).finish();
+            }
+        } catch (e) {
+            console.error(`[NetworkMgr] proto encode payload err for action ${action}`, e);
+            return false;
+        }
 
-        this.ws.send(JSON.stringify(payload));
-        // console.log(`[NetworkMgr] 發送訊息:`, payload);
+        const msg = pb.WSMessage.create({
+            action: action,
+            data: innerData
+        });
+
+        const buffer = pb.WSMessage.encode(msg).finish();
+        this.ws.send(buffer);
+        // console.log(`[NetworkMgr] 發送 Proto 訊息: ${action}`, buffer.byteLength);
         return true;
     }
 
@@ -83,19 +102,43 @@ export class NetworkMgr {
 
     private onMessage(ev: MessageEvent) {
         try {
-            const res = JSON.parse(ev.data);
-            // console.log(`[NetworkMgr] 收到訊息:`, res);
-
-            // 將解析後的 JSON 訊息透過 EventMgr 拋出給 ViewModel 訂閱者
-            EventMgr.emit(NetworkMgr.EVENT_MESSAGE_RECEIVED, res);
-
-            // 若伺服器也將動作細分 (例如 res.action = 'discard_tile')，也可動態拋出
-            if (res.action) {
-                EventMgr.emit(`ws_${res.action}`, res.data);
+            // 透過 WebSocket 設定 binaryType = "arraybuffer"，所以 ev.data 預期是 ArrayBuffer
+            if (!(ev.data instanceof ArrayBuffer)) {
+                console.warn("[NetworkMgr] 收到非二進位(非 Protobuf) 的資料");
+                return;
             }
 
+            const uint8Array = new Uint8Array(ev.data);
+            const msg = pb.WSMessage.decode(uint8Array);
+
+            // 解析 inner Data
+            let innerData: any = {};
+            try {
+                if (msg.action === "sync_state") {
+                    innerData = pb.SyncStateData.decode(msg.data);
+                } else if (msg.action === "deal_tiles") {
+                    innerData = pb.DealTilesData.decode(msg.data);
+                } else if (msg.action.endsWith("_res")) {
+                    if (msg.action === "join_room_res") {
+                        innerData = pb.JoinRoomRes.decode(msg.data);
+                    } else if (msg.action === "player_action_res") {
+                        innerData = pb.PlayerActionRes.decode(msg.data);
+                    }
+                }
+            } catch (innerErr) {
+                console.error(`[NetworkMgr] Failed to decode inner proto for ${msg.action}`, innerErr);
+            }
+
+            // console.log(`[NetworkMgr] 收到 Proto 訊息 ${msg.action}:`, innerData);
+
+            // 將解析後的物件透過 EventMgr 拋出給 ViewModel 訂閱者
+            EventMgr.emit(NetworkMgr.EVENT_MESSAGE_RECEIVED, { action: msg.action, data: innerData });
+
+            // 動態拋出對應的事件名稱
+            EventMgr.emit(`ws_${msg.action}`, innerData);
+
         } catch (e) {
-            console.error("[NetworkMgr] 解析 JSON 失敗", e, ev.data);
+            console.error("[NetworkMgr] 解析 Protobuf 失敗", e);
         }
     }
 
