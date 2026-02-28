@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"webmajiang/models"
 
 	"github.com/maoxiaoyue/hypgo/pkg/websocket"
 )
@@ -159,12 +160,67 @@ func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 		})
 
 	case "discard_tile":
-		sendWSError(client, "discard_tile_response", "discard tile not fully implemented yet")
-		// To be fully implemented in game.go DiscardTile action
+		type DiscardReq struct {
+			PlayerID int         `json:"player_id"`
+			Tile     models.Tile `json:"tile"`
+		}
+
+		// 假設 msg.Data 包裹了 { "game_id": "...", "data": { "player_id": 1, "tile": {...} } }
+		// 我們需要解析出 data 欄位
+		var fullReq struct {
+			Data DiscardReq `json:"data"`
+		}
+		if err := json.Unmarshal(msg.Data, &fullReq); err != nil {
+			sendWSError(client, "discard_tile_response", "invalid discard data format: "+err.Error())
+			return
+		}
+
+		state, err := DiscardTileAction(ctx, gameID, fullReq.Data.PlayerID, fullReq.Data.Tile)
+		if err != nil {
+			sendWSError(client, "discard_tile_response", err.Error())
+			return
+		}
+
+		// 廣播給所有人，現在進入 WAIT_ACTION 階段，並告知剛才誰打了什麼牌
+		client.Hub.SendToClient(client.ID, WSResponse{
+			Type:    "discard_tile_response",
+			Message: "出牌成功，等待其他玩家動作",
+			Data: map[string]interface{}{
+				"game_id":                gameID,
+				"stage":                  state.Stage,
+				"last_discard_tile":      state.LastDiscardTile,
+				"last_discard_player_id": state.LastDiscardPlayerID,
+			},
+		})
 
 	case "player_action":
-		sendWSError(client, "player_action_response", "player action not fully implemented yet")
-		// To be fully implemented in game.go PlayerAction action
+		type ActionReq struct {
+			PlayerID int    `json:"player_id"`
+			Action   string `json:"action"` // "pass", "chow", "pong", "kong", "hu"
+		}
+		var fullReq struct {
+			Data ActionReq `json:"data"`
+		}
+		if err := json.Unmarshal(msg.Data, &fullReq); err != nil {
+			sendWSError(client, "player_action_response", "invalid action data format: "+err.Error())
+			return
+		}
+
+		state, err := PlayerDeclareAction(ctx, gameID, fullReq.Data.PlayerID, fullReq.Data.Action)
+		if err != nil {
+			sendWSError(client, "player_action_response", err.Error())
+			return
+		}
+
+		client.Hub.SendToClient(client.ID, WSResponse{
+			Type:    "player_action_response",
+			Message: "動作宣告成功",
+			Data: map[string]interface{}{
+				"game_id":           gameID,
+				"stage":             state.Stage,
+				"current_player_id": state.CurrentPlayerID,
+			},
+		})
 
 	case "get_hands":
 		hands, err := GetAllPlayersHands(ctx, gameID)

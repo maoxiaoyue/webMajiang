@@ -1,0 +1,21 @@
+{
+    /* A basic tsconfig to resolve TypeScript errors before Cocos Creator is opened */
+    "compilerOptions": {
+        "target": "ES2015",
+        "module": "ES2015",
+        "strict": false,
+        "moduleResolution": "node",
+        "allowSyntheticDefaultImports": true,
+        "experimentalDecorators": true,
+        "skipLibCheck": true,
+        "baseUrl": "./",
+        "paths": {
+            "cc": [
+                "temp/declarations/cc"
+            ]
+        }
+    },
+    "include": [
+        "assets"
+    ]
+}

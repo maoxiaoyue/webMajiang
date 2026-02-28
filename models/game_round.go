@@ -130,13 +130,16 @@ const (
 
 // GameState 完整遊戲狀態（存放在 Redis 中）
 type GameState struct {
-	GameID          string         `json:"game_id"`
-	Stage           GameStage      `json:"stage"`             // 目前遊戲階段
-	CurrentPlayerID int            `json:"current_player_id"` // 目前輪到的玩家代號 (1-4)
-	Round           GameRound      `json:"round"`             // 目前局號
-	DealerPlayerID  int            `json:"dealer_player_id"`  // 莊家玩家代號 (1-4)
-	Dice            DiceResult     `json:"dice"`              // 擲骰子結果
-	IsStarted       bool           `json:"is_started"`        // 是否已開始
-	IsFinished      bool           `json:"is_finished"`       // 一將是否結束
-	Players         map[int]Player `json:"players"`           // 玩家列表 (SeatID 1-4 對應 -> Player)
+	GameID              string         `json:"game_id"`
+	Stage               GameStage      `json:"stage"`                  // 目前遊戲階段
+	CurrentPlayerID     int            `json:"current_player_id"`      // 目前輪到的玩家代號 (1-4)
+	Round               GameRound      `json:"round"`                  // 目前局號
+	DealerPlayerID      int            `json:"dealer_player_id"`       // 莊家玩家代號 (1-4)
+	Dice                DiceResult     `json:"dice"`                   // 擲骰子結果
+	IsStarted           bool           `json:"is_started"`             // 是否已開始
+	IsFinished          bool           `json:"is_finished"`            // 一將是否結束
+	Players             map[int]Player `json:"players"`                // 玩家列表 (SeatID 1-4 對應 -> Player)
+	LastDiscardTile     *Tile          `json:"last_discard_tile"`      // 最新打出的一張牌 (可為 null)
+	LastDiscardPlayerID int            `json:"last_discard_player_id"` // 是誰打出最新的這張牌
+	ActionDeclarations  map[int]string `json:"action_declarations"`    // 紀錄各家在 WAIT_ACTION 階段宣吿的動作 ("pass", "pong", "kong", "hu")
 }
