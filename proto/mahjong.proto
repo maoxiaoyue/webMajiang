@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package pb;
+
+// 指定產生 Go 程式碼的路徑與 package 命名
+option go_package = "webmajiang/models/pb";
+
+// ==============================================
+// 基礎通訊協定封裝
+// 用於 WebSocket 傳輸時的統一外層格式
+// ==============================================
+message WSMessage {
+    string action = 1;      // 指令動作名稱 (如: "sync_state", "player_action")
+    bytes data = 2;         // 具體的 Protobuf 序列化資料
+}
+
+// ==============================================
+// 玩家與房間基礎資訊
+// ==============================================
+message PlayerInfo {
+    string id = 1;
+    string name = 2;
+    int32 seat = 3;         // 0: 東, 1: 南, 2: 西, 3: 北
+    int32 score = 4;
+    repeated int32 hand_tiles = 5;       // 手牌 (若不公開則可能留空或只傳長度)
+    repeated int32 discarded_tiles = 6;  // 丟出的牌
+    repeated MeldData melds = 7;         // 吃碰槓的牌
+}
+
+message MeldData {
+    int32 type = 1;         // 1: 吃(Chow), 2: 碰(Pong), 3: 槓(Kong)
+    repeated int32 tiles = 2;// 組成這副副露的具體牌 ID
+}
+
+// ==============================================
+// 伺服器 -> 客戶端 (Game State Sync)
+// ==============================================
+message SyncStateData {
+    string room_id = 1;
+    int32 current_wind = 2;              // 圈風
+    int32 remaining_tiles = 3;           // 剩餘牌數
+    string current_turn_player_id = 4;   // 輪到誰出牌
+    string game_state = 5;               // "waiting", "playing", "complete"
+    repeated PlayerInfo players = 6;     // 玩家狀態列表
+}
+
+// 發給特定玩家的發牌資訊
+message DealTilesData {
+    repeated int32 tiles = 1;            // 剛摸到的牌
+}
+
+// 廣播玩家行為結果 (誰打了什麼牌、吃了什麼等)
+message ActionBroadcastData {
+    string player_id = 1;
+    int32 action_type = 2;               // 對應 PlayerActionData 中的 action_type
+    int32 tile_id = 3;
+    repeated int32 related_tiles = 4;    // (如果是吃碰槓，相關的牌)
+}
+
+// ==============================================
+// 客戶端 -> 伺服器 (Player Action)
+// ==============================================
+// 玩家請求加入房間
+message JoinRoomReq {
+    string room_id = 1;
+    string player_id = 2;
+}
+
+message JoinRoomRes {
+    bool success = 1;
+    string message = 2;
+}
+
+// 玩家在局中的操作 (出牌、吃、碰、槓、胡、過)
+message PlayerActionData {
+    int32 action_type = 1; // 1: 出牌(Discard), 2: 吃(Chow), 3: 碰(Pong), 4: 槓(Kong), 5: 胡(Win), 6: 過(Skip)
+    int32 tile_id = 2;     // 針對哪張牌
+}
+
+message PlayerActionRes {
+    bool success = 1;
+    string message = 2;
+}
