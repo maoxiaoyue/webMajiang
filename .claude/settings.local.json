@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:ezmjtw.tripod.com)",
-      "WebFetch(domain:commons.m.wikimedia.org)",
-      "WebFetch(domain:commons.wikimedia.org)"
-    ]
-  }
-}
