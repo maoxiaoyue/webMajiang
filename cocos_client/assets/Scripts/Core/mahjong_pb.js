@@ -1,4 +1,4 @@
-export function encodeWSMessage(message) {
+function encodeWSMessage(message) {
   let bb = popByteBuffer();
   _encodeWSMessage(message, bb);
   return toUint8Array(bb);
@@ -20,7 +20,7 @@ function _encodeWSMessage(message, bb) {
   }
 }
 
-export function decodeWSMessage(binary) {
+function decodeWSMessage(binary) {
   return _decodeWSMessage(wrapByteBuffer(binary));
 }
 
@@ -54,7 +54,7 @@ function _decodeWSMessage(bb) {
   return message;
 }
 
-export function encodePlayerInfo(message) {
+function encodePlayerInfo(message) {
   let bb = popByteBuffer();
   _encodePlayerInfo(message, bb);
   return toUint8Array(bb);
@@ -129,7 +129,7 @@ function _encodePlayerInfo(message, bb) {
   }
 }
 
-export function decodePlayerInfo(binary) {
+function decodePlayerInfo(binary) {
   return _decodePlayerInfo(wrapByteBuffer(binary));
 }
 
@@ -214,7 +214,7 @@ function _decodePlayerInfo(bb) {
   return message;
 }
 
-export function encodeMeldData(message) {
+function encodeMeldData(message) {
   let bb = popByteBuffer();
   _encodeMeldData(message, bb);
   return toUint8Array(bb);
@@ -242,7 +242,7 @@ function _encodeMeldData(message, bb) {
   }
 }
 
-export function decodeMeldData(binary) {
+function decodeMeldData(binary) {
   return _decodeMeldData(wrapByteBuffer(binary));
 }
 
@@ -285,7 +285,7 @@ function _decodeMeldData(bb) {
   return message;
 }
 
-export function encodeSyncStateData(message) {
+function encodeSyncStateData(message) {
   let bb = popByteBuffer();
   _encodeSyncStateData(message, bb);
   return toUint8Array(bb);
@@ -341,7 +341,7 @@ function _encodeSyncStateData(message, bb) {
   }
 }
 
-export function decodeSyncStateData(binary) {
+function decodeSyncStateData(binary) {
   return _decodeSyncStateData(wrapByteBuffer(binary));
 }
 
@@ -402,7 +402,7 @@ function _decodeSyncStateData(bb) {
   return message;
 }
 
-export function encodeDealTilesData(message) {
+function encodeDealTilesData(message) {
   let bb = popByteBuffer();
   _encodeDealTilesData(message, bb);
   return toUint8Array(bb);
@@ -423,7 +423,7 @@ function _encodeDealTilesData(message, bb) {
   }
 }
 
-export function decodeDealTilesData(binary) {
+function decodeDealTilesData(binary) {
   return _decodeDealTilesData(wrapByteBuffer(binary));
 }
 
@@ -460,7 +460,7 @@ function _decodeDealTilesData(bb) {
   return message;
 }
 
-export function encodeActionBroadcastData(message) {
+function encodeActionBroadcastData(message) {
   let bb = popByteBuffer();
   _encodeActionBroadcastData(message, bb);
   return toUint8Array(bb);
@@ -502,7 +502,7 @@ function _encodeActionBroadcastData(message, bb) {
   }
 }
 
-export function decodeActionBroadcastData(binary) {
+function decodeActionBroadcastData(binary) {
   return _decodeActionBroadcastData(wrapByteBuffer(binary));
 }
 
@@ -557,7 +557,7 @@ function _decodeActionBroadcastData(bb) {
   return message;
 }
 
-export function encodeJoinRoomReq(message) {
+function encodeJoinRoomReq(message) {
   let bb = popByteBuffer();
   _encodeJoinRoomReq(message, bb);
   return toUint8Array(bb);
@@ -579,7 +579,7 @@ function _encodeJoinRoomReq(message, bb) {
   }
 }
 
-export function decodeJoinRoomReq(binary) {
+function decodeJoinRoomReq(binary) {
   return _decodeJoinRoomReq(wrapByteBuffer(binary));
 }
 
@@ -613,7 +613,7 @@ function _decodeJoinRoomReq(bb) {
   return message;
 }
 
-export function encodeJoinRoomRes(message) {
+function encodeJoinRoomRes(message) {
   let bb = popByteBuffer();
   _encodeJoinRoomRes(message, bb);
   return toUint8Array(bb);
@@ -635,7 +635,7 @@ function _encodeJoinRoomRes(message, bb) {
   }
 }
 
-export function decodeJoinRoomRes(binary) {
+function decodeJoinRoomRes(binary) {
   return _decodeJoinRoomRes(wrapByteBuffer(binary));
 }
 
@@ -669,7 +669,7 @@ function _decodeJoinRoomRes(bb) {
   return message;
 }
 
-export function encodePlayerActionData(message) {
+function encodePlayerActionData(message) {
   let bb = popByteBuffer();
   _encodePlayerActionData(message, bb);
   return toUint8Array(bb);
@@ -691,7 +691,7 @@ function _encodePlayerActionData(message, bb) {
   }
 }
 
-export function decodePlayerActionData(binary) {
+function decodePlayerActionData(binary) {
   return _decodePlayerActionData(wrapByteBuffer(binary));
 }
 
@@ -725,7 +725,7 @@ function _decodePlayerActionData(bb) {
   return message;
 }
 
-export function encodePlayerActionRes(message) {
+function encodePlayerActionRes(message) {
   let bb = popByteBuffer();
   _encodePlayerActionRes(message, bb);
   return toUint8Array(bb);
@@ -747,7 +747,12 @@ function _encodePlayerActionRes(message, bb) {
   }
 }
 
-export function decodePlayerActionRes(binary) {
+window.mahjong_pb = window.mahjong_pb || {};
+window.mahjong_pb.encodeWSMessage = encodeWSMessage;
+window.mahjong_pb.decodeWSMessage = decodeWSMessage;
+window.mahjong_pb.encodePlayerInfo = encodePlayerInfo;
+
+function decodePlayerActionRes(binary) {
   return _decodePlayerActionRes(wrapByteBuffer(binary));
 }
 
@@ -1261,3 +1266,25 @@ function writeVarint64ZigZag(bb, value) {
     unsigned: false,
   });
 }
+
+window.mahjong_pb = window.mahjong_pb || {};
+window.mahjong_pb.encodeWSMessage = encodeWSMessage;
+window.mahjong_pb.decodeWSMessage = decodeWSMessage;
+window.mahjong_pb.encodePlayerInfo = encodePlayerInfo;
+window.mahjong_pb.decodePlayerInfo = decodePlayerInfo;
+window.mahjong_pb.encodeMeldData = encodeMeldData;
+window.mahjong_pb.decodeMeldData = decodeMeldData;
+window.mahjong_pb.encodeSyncStateData = encodeSyncStateData;
+window.mahjong_pb.decodeSyncStateData = decodeSyncStateData;
+window.mahjong_pb.encodeDealTilesData = encodeDealTilesData;
+window.mahjong_pb.decodeDealTilesData = decodeDealTilesData;
+window.mahjong_pb.encodeActionBroadcastData = encodeActionBroadcastData;
+window.mahjong_pb.decodeActionBroadcastData = decodeActionBroadcastData;
+window.mahjong_pb.encodeJoinRoomReq = encodeJoinRoomReq;
+window.mahjong_pb.decodeJoinRoomReq = decodeJoinRoomReq;
+window.mahjong_pb.encodeJoinRoomRes = encodeJoinRoomRes;
+window.mahjong_pb.decodeJoinRoomRes = decodeJoinRoomRes;
+window.mahjong_pb.encodePlayerActionData = encodePlayerActionData;
+window.mahjong_pb.decodePlayerActionData = decodePlayerActionData;
+window.mahjong_pb.encodePlayerActionRes = encodePlayerActionRes;
+window.mahjong_pb.decodePlayerActionRes = decodePlayerActionRes;

@@ -1,5 +1,4 @@
 import { EventMgr } from '../Events/EventMgr';
-import * as pb from './mahjong_pb';
 
 export class NetworkMgr {
     private static _instance: NetworkMgr = null!;
@@ -69,22 +68,22 @@ export class NetworkMgr {
         let innerData = new Uint8Array();
         try {
             if (action === "join_room") {
-                innerData = pb.JoinRoomReq.encode(pb.JoinRoomReq.create(data)).finish();
+                innerData = window.mahjong_pb.encodeJoinRoomReq(data) as unknown as Uint8Array;
             } else if (action === "discard_tile" || action === "player_action") {
                 // 若兩者共用 pb.PlayerActionData
-                innerData = pb.PlayerActionData.encode(pb.PlayerActionData.create(data)).finish();
+                innerData = window.mahjong_pb.encodePlayerActionData(data) as unknown as Uint8Array;
             }
         } catch (e) {
             console.error(`[NetworkMgr] proto encode payload err for action ${action}`, e);
             return false;
         }
 
-        const msg = pb.WSMessage.create({
+        const msg = {
             action: action,
             data: innerData
-        });
+        };
 
-        const buffer = pb.WSMessage.encode(msg).finish();
+        const buffer = window.mahjong_pb.encodeWSMessage(msg) as unknown as ArrayBuffer;
         this.ws.send(buffer);
         // console.log(`[NetworkMgr] 發送 Proto 訊息: ${action}`, buffer.byteLength);
         return true;
@@ -109,20 +108,20 @@ export class NetworkMgr {
             }
 
             const uint8Array = new Uint8Array(ev.data);
-            const msg = pb.WSMessage.decode(uint8Array);
+            const msg = window.mahjong_pb.decodeWSMessage(uint8Array);
 
             // 解析 inner Data
             let innerData: any = {};
             try {
                 if (msg.action === "sync_state") {
-                    innerData = pb.SyncStateData.decode(msg.data);
+                    innerData = window.mahjong_pb.decodeSyncStateData(msg.data);
                 } else if (msg.action === "deal_tiles") {
-                    innerData = pb.DealTilesData.decode(msg.data);
+                    innerData = window.mahjong_pb.decodeDealTilesData(msg.data);
                 } else if (msg.action.endsWith("_res")) {
                     if (msg.action === "join_room_res") {
-                        innerData = pb.JoinRoomRes.decode(msg.data);
+                        innerData = window.mahjong_pb.decodeJoinRoomRes(msg.data);
                     } else if (msg.action === "player_action_res") {
-                        innerData = pb.PlayerActionRes.decode(msg.data);
+                        innerData = window.mahjong_pb.decodePlayerActionRes(msg.data);
                     }
                 }
             } catch (innerErr) {

@@ -1333,3 +1333,32 @@ function writeVarint64ZigZag(bb: ByteBuffer, value: Long): void {
     unsigned: false,
   });
 }
+declare namespace mahjong_pb {
+  export function encodeWSMessage(message: WSMessage): Uint8Array;
+  export function decodeWSMessage(binary: Uint8Array): WSMessage;
+  export function encodePlayerInfo(message: PlayerInfo): Uint8Array;
+  export function decodePlayerInfo(binary: Uint8Array): PlayerInfo;
+  export function encodeMeldData(message: MeldData): Uint8Array;
+  export function decodeMeldData(binary: Uint8Array): MeldData;
+  export function encodeSyncStateData(message: SyncStateData): Uint8Array;
+  export function decodeSyncStateData(binary: Uint8Array): SyncStateData;
+  export function encodeDealTilesData(message: DealTilesData): Uint8Array;
+  export function decodeDealTilesData(binary: Uint8Array): DealTilesData;
+  export function encodeActionBroadcastData(message: ActionBroadcastData): Uint8Array;
+  export function decodeActionBroadcastData(binary: Uint8Array): ActionBroadcastData;
+  export function encodeJoinRoomReq(message: JoinRoomReq): Uint8Array;
+  export function decodeJoinRoomReq(binary: Uint8Array): JoinRoomReq;
+  export function encodeJoinRoomRes(message: JoinRoomRes): Uint8Array;
+  export function decodeJoinRoomRes(binary: Uint8Array): JoinRoomRes;
+  export function encodePlayerActionData(message: PlayerActionData): Uint8Array;
+  export function decodePlayerActionData(binary: Uint8Array): PlayerActionData;
+  export function encodePlayerActionRes(message: PlayerActionRes): Uint8Array;
+  export function decodePlayerActionRes(binary: Uint8Array): PlayerActionRes;
+}
+
+declare global {
+  interface Window {
+    mahjong_pb: typeof mahjong_pb;
+  }
+}
+export { };

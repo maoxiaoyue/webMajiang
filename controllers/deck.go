@@ -265,13 +265,8 @@ func DealTiles(ctx context.Context, gameID string, dealerPlayerID int) error {
 		return fmt.Errorf("dealer open tile: LPUSH failed: %w", err)
 	}
 
-	// ----- 第四階段：理牌（排序每位玩家的手牌）-----
-	for p := 1; p <= 4; p++ {
-		if err := SortPlayerHand(ctx, gameID, p); err != nil {
-			return fmt.Errorf("sort player%d hand failed: %w", p, err)
-		}
-	}
-
+	// 發牌完成，不自動理牌
+	// 排序由前端動畫結束後透過 sort_hand 指令觸發
 	return nil
 }
 
