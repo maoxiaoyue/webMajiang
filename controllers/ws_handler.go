@@ -103,6 +103,81 @@ func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 		syncData := buildSyncStateData(gameID, state)
 		sendProtoBroadcast(client.Hub, "sync_state", syncData)
 
+	// === 觸發發牌 ===
+	case "deal_tiles":
+		var joinReq pb.JoinRoomReq
+		if err := proto.Unmarshal(req.Data, &joinReq); err != nil {
+			sendWSError(client, action, "invalid JoinRoomReq data for deal_tiles")
+			return
+		}
+		gameID := joinReq.RoomId
+		if gameID == "" {
+			gameID = "default_room"
+		}
+		// 從 joinReq.PlayerId 判斷誰是請求方（暫定 player 1）
+		requesterID := 1
+
+		// 執行發牌（不排序）
+		state, err := DealTilesAction(ctx, gameID)
+		if err != nil {
+			sendWSError(client, action, err.Error())
+			return
+		}
+
+		// 僅回傳請求者自己的手牌 tile ID list（不含排序）
+		hand, err := GetPlayerHand(ctx, gameID, requesterID)
+		if err != nil {
+			sendWSError(client, action, err.Error())
+			return
+		}
+
+		tileIds := make([]int32, len(hand))
+		for i, t := range hand {
+			tileIds[i] = int32(t.ID)
+		}
+
+		dealRes := &pb.DealTilesData{
+			Tiles: tileIds,
+		}
+		sendProtoResponse(client, "deal_tiles_res", dealRes)
+
+		// 廣播最新狀態（讓所有人知道進入打牌階段）
+		syncData := buildSyncStateData(gameID, state)
+		sendProtoBroadcast(client.Hub, "sync_state", syncData)
+
+	// === 手牌排序（發牌動畫結束後呼叫）===
+	case "sort_hand":
+		var joinReq pb.JoinRoomReq
+		if err := proto.Unmarshal(req.Data, &joinReq); err != nil {
+			sendWSError(client, action, "invalid sort_hand request")
+			return
+		}
+		gameID := joinReq.RoomId
+		if gameID == "" {
+			gameID = "default_room"
+		}
+		playerID := 1 // 暫定 player 1
+
+		if err := SortPlayerHand(ctx, gameID, playerID); err != nil {
+			sendWSError(client, action, err.Error())
+			return
+		}
+
+		sortedHand, err := GetPlayerHand(ctx, gameID, playerID)
+		if err != nil {
+			sendWSError(client, action, err.Error())
+			return
+		}
+
+		tileIds := make([]int32, len(sortedHand))
+		for i, t := range sortedHand {
+			tileIds[i] = int32(t.ID)
+		}
+
+		sendProtoResponse(client, "sort_hand_res", &pb.DealTilesData{
+			Tiles: tileIds,
+		})
+
 	default:
 		fmt.Printf("Unhandled websocket action type: %s\n", action)
 	}

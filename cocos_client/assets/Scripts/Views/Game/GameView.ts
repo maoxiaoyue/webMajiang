@@ -1,7 +1,8 @@
-import { _decorator, Node, Label, Sprite } from 'cc';
+import { _decorator, Node, Label } from 'cc';
 import { BaseView } from '../BaseView';
 import { GameViewModel } from '../../ViewModels/Game/GameViewModel';
 import { EventMgr } from '../../Events/EventMgr';
+import { TileRenderer, TileDisplayMode } from '../../Core/TileRenderer';
 
 const { ccclass, property } = _decorator;
 
@@ -12,7 +13,7 @@ const { ccclass, property } = _decorator;
 export class GameView extends BaseView {
 
     @property(Node)
-    public centerInfoPanel: Node = null!; // 中央資訊區塊 (風向、剩餘牌數)
+    public centerInfoPanel: Node = null!;
 
     @property(Label)
     public remainingTilesLabel: Label = null!;
@@ -20,57 +21,161 @@ export class GameView extends BaseView {
     @property(Label)
     public currentWindLabel: Label = null!;
 
-    // 玩家手牌區塊陣列 (0: 本機玩家, 1: 右邊, 2: 對面, 3: 左邊)
+    // 玩家手牌容器 (0: 本機玩家, 1: 右邊, 2: 對面, 3: 左邊)
     @property([Node])
     public playerHandNodes: Node[] = [];
 
-    protected onLoad(): void {
-        // 例項化對應的 ViewModel
-        this.viewModel = new GameViewModel();
+    // 玩家棄牌區容器
+    @property([Node])
+    public playerDiscardNodes: Node[] = [];
 
-        super.onLoad(); // 呼叫父類以觸發 bindViewModel()
+    private handTileRenderers: TileRenderer[] = [];
+
+    protected onLoad(): void {
+        this.viewModel = new GameViewModel();
+        super.onLoad();
     }
 
-    /**
-     * 綁定 ViewModel 與 EventMgr 事件
-     */
     protected bindViewModel() {
         EventMgr.on("game_state_changed", this.onGameStateChanged, this);
         EventMgr.on("player_hand_changed", this.onPlayerHandChanged, this);
+        EventMgr.on("deal_tiles_received", this.onDealTilesReceived, this);
     }
 
     protected onDestroy(): void {
-        EventMgr.targetOff(this); // 移除所有綁定的事件
+        EventMgr.targetOff(this);
         super.onDestroy();
     }
 
+    // ============================================
+    // 手牌渲染
+    // ============================================
+
     /**
-     * 當遊戲整體狀態變更時更新畫面 (由 Model 出發 -> EventMgr 轉發)
+     * 渲染本機玩家的手牌（正面 + 上側面，有 3D 深度感）
      */
-    private onGameStateChanged(modelInfo: any) {
-        console.log("Game state changed:", modelInfo);
-        if (this.remainingTilesLabel) {
-            this.remainingTilesLabel.string = `剩餘: ${modelInfo.remainingTiles}`;
+    public renderHandTiles(tileIds: number[]) {
+        const handNode = this.playerHandNodes[0];
+        if (!handNode) return;
+
+        handNode.removeAllChildren();
+        this.handTileRenderers = [];
+
+        for (const tileId of tileIds) {
+            const tileNode = TileRenderer.createStandingTile(tileId);
+            handNode.addChild(tileNode);
+
+            const renderer = tileNode.getComponent(TileRenderer)!;
+            this.handTileRenderers.push(renderer);
+
+            tileNode.on(Node.EventType.TOUCH_END, () => {
+                this.onTileClicked(tileId, tileNode);
+            });
         }
     }
 
     /**
-     * 當某個玩家手牌發生改變時更新畫面
+     * 渲染對手手牌（背面 + 上側面）
      */
-    private onPlayerHandChanged(data: { playerId: string, tiles: number[] }) {
-        console.log(`Player ${data.playerId} hand updated:`, data.tiles);
-        // TODO: 依照對應座位的手牌節點 (playerHandNodes) 重新生成麻將牌的 Prefab
+    public renderOpponentHand(seatIndex: number, count: number) {
+        const handNode = this.playerHandNodes[seatIndex];
+        if (!handNode) return;
+
+        handNode.removeAllChildren();
+        for (let i = 0; i < count; i++) {
+            const tileNode = TileRenderer.createOpponentTile();
+            handNode.addChild(tileNode);
+        }
     }
 
     /**
-     * UI 點擊事件：當玩家選擇了一張手牌並點擊「出牌」
+     * 渲染棄牌區（正面平放）
      */
-    public onBtnDiscardClicked(tileId: number) {
-        // 將 UI 操作委託給 ViewModel 處理業務邏輯
-        const success = (this.viewModel as GameViewModel).attemptDiscardTile(tileId);
+    public renderDiscardTiles(seatIndex: number, tileIds: number[]) {
+        const discardNode = this.playerDiscardNodes[seatIndex];
+        if (!discardNode) return;
 
-        if (success) {
-            // 如需播放本機出牌動畫可在此執行
+        discardNode.removeAllChildren();
+        for (const tileId of tileIds) {
+            const tileNode = TileRenderer.createDiscardTile(tileId);
+            discardNode.addChild(tileNode);
+        }
+    }
+
+    // ============================================
+    // 事件處理
+    // ============================================
+
+    private onGameStateChanged(modelInfo: any) {
+        if (this.remainingTilesLabel && modelInfo.remainingTiles != null) {
+            this.remainingTilesLabel.string = `剩餘: ${modelInfo.remainingTiles}`;
+        }
+        if (this.currentWindLabel && modelInfo.currentWind != null) {
+            const windNames = ["東", "南", "西", "北"];
+            this.currentWindLabel.string = windNames[modelInfo.currentWind] || "東";
+        }
+
+        if (modelInfo.players) {
+            for (const player of modelInfo.players) {
+                if (player.seat === 0) {
+                    this.renderHandTiles(player.handTiles || []);
+                } else {
+                    this.renderOpponentHand(player.seat, (player.handTiles || []).length);
+                }
+                this.renderDiscardTiles(player.seat, player.discardedTiles || []);
+            }
+        }
+    }
+
+    private onPlayerHandChanged(data: { playerId: string, tiles: number[] }) {
+        this.renderHandTiles(data.tiles);
+    }
+
+    private onDealTilesReceived(tiles: number[]) {
+        const handNode = this.playerHandNodes[0];
+        if (!handNode) return;
+
+        for (const tileId of tiles) {
+            const tileNode = TileRenderer.createStandingTile(tileId);
+            handNode.addChild(tileNode);
+
+            const renderer = tileNode.getComponent(TileRenderer)!;
+            this.handTileRenderers.push(renderer);
+
+            tileNode.on(Node.EventType.TOUCH_END, () => {
+                this.onTileClicked(tileId, tileNode);
+            });
+        }
+    }
+
+    // ============================================
+    // 互動
+    // ============================================
+
+    private selectedTileNode: Node | null = null;
+
+    private onTileClicked(tileId: number, tileNode: Node) {
+        if (this.selectedTileNode === tileNode) {
+            this.onBtnDiscardClicked(tileId);
+            this.selectedTileNode = null;
+            return;
+        }
+
+        if (this.selectedTileNode) {
+            this.selectedTileNode.setPosition(
+                this.selectedTileNode.position.x, 0, 0
+            );
+        }
+
+        this.selectedTileNode = tileNode;
+        tileNode.setPosition(tileNode.position.x, 15, 0);
+    }
+
+    public onBtnDiscardClicked(tileId: number) {
+        const success = (this.viewModel as GameViewModel).attemptDiscardTile(tileId);
+        if (success && this.selectedTileNode) {
+            this.selectedTileNode.removeFromParent();
+            this.selectedTileNode = null;
         }
     }
 }

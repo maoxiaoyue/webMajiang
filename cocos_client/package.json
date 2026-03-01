@@ -1,5 +1,13 @@
 {
   "dependencies": {
     "protobufjs": "^8.0.0"
-  }
+  },
+  "creator": {
+    "version": "3.8.8"
+  },
+  "scripts": {
+    "build:web-mobile": "C:/ProgramData/cocos/editors/Creator/3.8.8/CocosCreator.exe --project ./ --build \"platform=web-mobile\"",
+    "build:web-desktop": "C:/ProgramData/cocos/editors/Creator/3.8.8/CocosCreator.exe --project ./ --build \"platform=web-desktop\""
+  },
+  "uuid": "87c27085-0ad0-4ada-a005-4ed5eaa14ca1"
 }
