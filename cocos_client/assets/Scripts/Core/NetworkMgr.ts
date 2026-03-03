@@ -1,4 +1,5 @@
 import { EventMgr } from '../Events/EventMgr';
+import { ErrorReporter } from './ErrorReporter';
 
 export class NetworkMgr {
     private static _instance: NetworkMgr = null!;
@@ -21,7 +22,9 @@ export class NetworkMgr {
     // 從 Go Server 收到訊息的統一事件
     public static readonly EVENT_MESSAGE_RECEIVED = "net_message_received";
 
-    private constructor() { }
+    private constructor() {
+        ErrorReporter.init();
+    }
 
     /**
      * 初始化連線

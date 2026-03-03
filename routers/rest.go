@@ -22,6 +22,7 @@ func setupRestRoutes(r *router.Router) {
 func setupBaseRoutes(r *router.Router) {
 	r.GET("/", controllers.GetRoot)
 	r.GET("/health", controllers.GetHealth)
+	r.POST("/api/client/error", controllers.HandleClientError) // 接收 Cocos 客戶端報錯
 }
 
 // setupGameRoutes 註冊遊戲相關路由
