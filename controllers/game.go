@@ -311,6 +311,58 @@ func DiscardTileAction(ctx context.Context, gameID string, playerID int, tile mo
 	return state, nil
 }
 
+// DrawTileAction 玩家摸牌 (Stage: PLAYER_DRAW → PLAYER_DISCARD)
+func DrawTileAction(ctx context.Context, gameID string, playerID int) (*models.GameState, *models.Tile, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if state.Stage != models.StagePlayerDraw {
+		return nil, nil, fmt.Errorf("action not allowed in current stage: %s", state.Stage)
+	}
+
+	if state.CurrentPlayerID != playerID {
+		return nil, nil, fmt.Errorf("not your turn to draw, current player is %d", state.CurrentPlayerID)
+	}
+
+	// 檢查牌堆是否還有牌（荒莊流局檢查）
+	deckCount, err := GetDeckCount(ctx, gameID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check deck count: %w", err)
+	}
+	if deckCount == 0 {
+		// 荒莊流局：牌堆已空
+		state.Stage = models.StageRoundOver
+		if err := SaveGameState(ctx, state); err != nil {
+			return nil, nil, err
+		}
+		return state, nil, nil
+	}
+
+	// 從牌堆摸一張牌
+	drawnTile, err := DrawTile(ctx, gameID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to draw tile: %w", err)
+	}
+
+	// 將摸到的牌加入玩家手牌 (透過 Redis LPUSH)
+	tileJSON, _ := json.Marshal(drawnTile)
+	playerKey := PlayerHandKey(gameID, playerID)
+	if err := service.RedisClient.LPush(ctx, playerKey, string(tileJSON)).Err(); err != nil {
+		return nil, nil, fmt.Errorf("failed to add drawn tile to hand: %w", err)
+	}
+
+	// 更新狀態機：進入出牌階段
+	state.Stage = models.StagePlayerDiscard
+	// CurrentPlayerID 維持不變（摸牌者接著出牌）
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, nil, err
+	}
+	return state, drawnTile, nil
+}
+
 // PlayerDeclareAction 玩家宣告 (吃/碰/槓/胡/放棄)
 func PlayerDeclareAction(ctx context.Context, gameID string, playerID int, action string) (*models.GameState, error) {
 	state, err := LoadGameState(ctx, gameID)

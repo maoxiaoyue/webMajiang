@@ -3,57 +3,39 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"webmajiang/models"
 )
 
-// ProcessAITurn 處理 AI 玩家的回合
-// 1. 摸牌 (DrawTile)
-// 2. 判斷是否自摸 (CanHu)
-// 3. 找出最沒用的牌 (models.GetBestDiscard)
-// 4. 丟牌 (TODO: 未實作丟牌寫入 Redis 流程，先印出 Log)
+// ProcessAITurn 處理 AI 玩家的回合（從摸牌到出牌的完整流程）
+// 此函式由 game_loop 中的 runAIDrawAndDiscard 取代日常調用
+// 保留作為獨立的 AI 回合入口（例如首次莊家出牌等情境）
 func ProcessAITurn(ctx context.Context, gameID string, p models.Player) error {
 	fmt.Printf("[AI Turn] 輪到 AI 玩家 %d (%s) 動作...\n", p.ID, p.Name)
 
-	// 模擬 AI 思考時間 (增加真實感與前端動畫時間)
-	time.Sleep(1 * time.Second)
-
-	// 1. 摸牌
-	drawnTile, err := DrawTile(ctx, gameID)
+	state, err := LoadGameState(ctx, gameID)
 	if err != nil {
-		return fmt.Errorf("AI 摸牌失敗: %w", err)
+		return fmt.Errorf("載入遊戲狀態失敗: %w", err)
 	}
 
-	fmt.Printf("[AI Turn] 玩家 %d 摸到了 %s\n", p.ID, drawnTile.String())
+	switch state.Stage {
+	case models.StagePlayerDraw:
+		// AI 需要摸牌 + 出牌
+		_, err := runAIDrawAndDiscard(ctx, gameID, p)
+		if err != nil {
+			return err
+		}
 
-	// 更新該玩家的手牌資料 (從 Redis 重新獲取最新手牌，包含剛摸的那張)
-	hands, err := GetPlayerHand(ctx, gameID, p.ID)
-	if err != nil {
-		return fmt.Errorf("取得 AI 手牌失敗: %w", err)
+	case models.StagePlayerDiscard:
+		// AI 只需出牌（例如莊家發牌後直接出牌、或碰/吃後出牌）
+		_, err := runAIDiscard(ctx, gameID, p)
+		if err != nil {
+			return err
+		}
+
+	default:
+		return fmt.Errorf("AI 回合不應在 %s 階段觸發", state.Stage)
 	}
-	p.Hand = hands
-
-	// 2. 檢查是否自摸
-	if models.CanHu(p.Hand) {
-		fmt.Printf("[AI Turn] 🌟 玩家 %d 自摸了！\n", p.ID)
-		// TODO: 觸發胡牌結束遊戲流程
-		return nil
-	}
-
-	time.Sleep(500 * time.Millisecond)
-
-	// 3. 判斷要丟掉哪一張牌
-	discardTile := models.GetBestDiscard(p.Hand)
-	fmt.Printf("[AI Turn] 玩家 %d 決定丟出 %s\n", p.ID, discardTile.String())
-
-	// 4. 丟牌至海底 (使用 DiscardTileAction 更新遊戲狀態)
-	if _, err := DiscardTileAction(ctx, gameID, p.ID, discardTile); err != nil {
-		return fmt.Errorf("AI 丟牌失敗: %w", err)
-	}
-
-	// 5. 等待其他玩家動作 (吃碰槓胡)
-	// (註: DiscardTileAction 已將 Stage 設為 WaitAction，後續將由系統的 ResolveActions 決定下一位)
 
 	return nil
 }
