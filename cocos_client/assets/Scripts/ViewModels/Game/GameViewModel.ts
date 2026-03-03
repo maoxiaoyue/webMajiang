@@ -38,9 +38,36 @@ export class GameViewModel extends BaseViewModel<GameModel> {
         this.model.currentWind = data.currentWind || 0;
         this.model.remainingTiles = data.remainingTiles ?? 144;
         this.model.currentTurnPlayerId = data.currentTurnPlayerId || "";
-        this.model.gameState = data.gameState || "waiting";
+        // 處理 GameState 可能是帶有 scoreResults 的 JSON 字串情況
+        let rawGameState = data.gameState || "waiting";
+        this.model.scoreResults = null;
+        if (rawGameState.startsWith("{")) {
+            try {
+                const parsed = JSON.parse(rawGameState);
+                this.model.gameState = parsed.stage || "complete";
+                this.model.scoreResults = parsed.score_results || null;
 
+                if (this.model.scoreResults) {
+                    console.log("[GameViewModel] Received ScoreResults:", this.model.scoreResults);
+                }
+            } catch (e) {
+                console.warn("[GameViewModel] failed to parse gameState JSON", e);
+                this.model.gameState = rawGameState;
+            }
+        } else {
+            this.model.gameState = rawGameState;
+        }
+
+        this.model.winnerIds = data.winnerIds || [];
+
+        let lastDiscardedTileId = -1;
         if (data.players && Array.isArray(data.players)) {
+            // 在 WAIT_ACTION 階段，currentTurnPlayerId 還是剛出牌的玩家，我們可以從他的 discardedTiles 取出最後一張
+            const currentPlayer = data.players.find((p: any) => p.id === data.currentTurnPlayerId);
+            if (currentPlayer && currentPlayer.discardedTiles && currentPlayer.discardedTiles.length > 0) {
+                lastDiscardedTileId = currentPlayer.discardedTiles[currentPlayer.discardedTiles.length - 1];
+            }
+
             this.model.players = data.players.map((p: any) => ({
                 id: p.id || "",
                 name: p.name || "",
@@ -48,10 +75,15 @@ export class GameViewModel extends BaseViewModel<GameModel> {
                 score: p.score || 0,
                 handTiles: p.handTiles || [],
                 discardedTiles: p.discardedTiles || [],
-                meldTiles: p.melds || []
+                melds: (p.melds || []).map((m: any) => ({
+                    type: m.type || 0,
+                    tiles: m.tiles || []
+                })),
+                flowers: p.flowers || []
             } as PlayerData));
         }
 
+        this.model.lastDiscardedTileId = lastDiscardedTileId;
         this.model.updateGameState(data);
     }
 

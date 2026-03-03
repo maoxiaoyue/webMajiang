@@ -14,3 +14,13 @@ redis:
   addr: "localhost:6379"
   password: ""
   db: 0
+
+smtp:
+  host: ""
+  port: 587
+  username: ""
+  password: ""
+  from: "noreply@example.com"
+
+jwt:
+  secret: "your_super_secret_key"

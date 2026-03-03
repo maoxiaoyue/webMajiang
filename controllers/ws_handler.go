@@ -6,11 +6,29 @@ import (
 	"fmt"
 	"webmajiang/models"
 	"webmajiang/models/pb"
+	"webmajiang/service"
 	"webmajiang/utils"
+
+	"strconv"
 
 	"github.com/maoxiaoyue/hypgo/pkg/websocket"
 	"google.golang.org/protobuf/proto"
 )
+
+func keepOnline(playerIDStr string) {
+	if playerIDStr == "" {
+		return
+	}
+	id, err := strconv.ParseInt(playerIDStr, 10, 64)
+	if err != nil {
+		return
+	}
+	ctx := context.Background()
+	user, err := models.GetUserByID(ctx, id)
+	if err == nil {
+		models.KeepUserOnline(ctx, user.ID, user.Username)
+	}
+}
 
 // HandleWebSocketMessage acts as the main router for incoming WebSocket messages (Now using Protobuf)
 func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
@@ -92,6 +110,8 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 
 	gameID := joinReq.RoomId
 
+	go keepOnline(joinReq.PlayerId)
+
 	// 假設加入成功，回覆
 	res := &pb.JoinRoomRes{
 		Success: true,
@@ -117,6 +137,8 @@ func handleRollPositions(ctx context.Context, client *websocket.Client, action s
 	if gameID == "" {
 		gameID = "default_room"
 	}
+
+	go keepOnline(req.PlayerId)
 
 	state, err := RollPositions(ctx, gameID)
 	if err != nil {
@@ -145,6 +167,8 @@ func handleRollDealer(ctx context.Context, client *websocket.Client, action stri
 	if gameID == "" {
 		gameID = "default_room"
 	}
+
+	go keepOnline(req.PlayerId)
 
 	state, err := RollDealer(ctx, gameID)
 	if err != nil {
@@ -175,6 +199,7 @@ func handleDealTiles(ctx context.Context, client *websocket.Client, action strin
 	if req.PlayerId != "" {
 		// 嘗試解析 player_id
 		fmt.Sscanf(req.PlayerId, "%d", &requesterID)
+		go keepOnline(req.PlayerId)
 	}
 
 	// 執行發牌
@@ -234,6 +259,7 @@ func handleSortHand(ctx context.Context, client *websocket.Client, action string
 	playerID := 1
 	if req.PlayerId != "" {
 		fmt.Sscanf(req.PlayerId, "%d", &playerID)
+		go keepOnline(req.PlayerId)
 	}
 
 	if err := SortPlayerHand(ctx, gameID, playerID); err != nil {
@@ -270,6 +296,7 @@ func handleDrawTile(ctx context.Context, client *websocket.Client, action string
 	playerID := 1
 	if req.PlayerId != "" {
 		fmt.Sscanf(req.PlayerId, "%d", &playerID)
+		go keepOnline(req.PlayerId)
 	}
 
 	state, drawnTile, err := DrawTileAction(ctx, gameID, playerID)
@@ -440,6 +467,8 @@ func handleNextRound(ctx context.Context, client *websocket.Client, action strin
 		gameID = "default_room"
 	}
 
+	go keepOnline(req.PlayerId)
+
 	state, isComplete, err := NextRound(ctx, gameID)
 	if err != nil {
 		sendWSError(client, action, err.Error())
@@ -471,6 +500,8 @@ func handleGetState(ctx context.Context, client *websocket.Client, action string
 		gameID = "default_room"
 	}
 
+	go keepOnline(req.PlayerId)
+
 	state, err := LoadGameState(ctx, gameID)
 	if err != nil {
 		sendWSError(client, action, err.Error())
@@ -491,6 +522,8 @@ func handleGetHands(ctx context.Context, client *websocket.Client, action string
 	if gameID == "" {
 		gameID = "default_room"
 	}
+
+	go keepOnline(req.PlayerId)
 
 	hands, err := GetAllPlayersHands(ctx, gameID)
 	if err != nil {
@@ -516,6 +549,8 @@ func handleGetDeckCount(ctx context.Context, client *websocket.Client, action st
 	if gameID == "" {
 		gameID = "default_room"
 	}
+
+	go keepOnline(req.PlayerId)
 
 	count, err := GetDeckCount(ctx, gameID)
 	if err != nil {
@@ -578,15 +613,84 @@ func sendWSError(client *websocket.Client, action string, errorMsg string) {
 
 // 幫助函數：將 GameState 轉換為 protobuf 定義的 SyncStateData
 func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateData {
+	// 轉換 GameState 狀態名稱
+	gameStateStr := string(state.Stage)
+
+	// 如果處於結算階段且有結果，將台數資訊合併進 GameState string 中 (使用 JSON)
+	if state.Stage == models.StageRoundOver && state.ScoreResults != nil {
+		type RoundOverPayload struct {
+			Stage        string                     `json:"stage"`
+			ScoreResults map[int]models.ScoreResult `json:"score_results"`
+		}
+
+		payload := RoundOverPayload{
+			Stage:        gameStateStr,
+			ScoreResults: state.ScoreResults,
+		}
+
+		if b, err := json.Marshal(payload); err == nil {
+			gameStateStr = string(b)
+		}
+	}
+
 	syncData := &pb.SyncStateData{
 		RoomId:              gameID,
 		CurrentWind:         int32(state.Round.PrevailingWind),
 		CurrentTurnPlayerId: fmt.Sprintf("%d", state.CurrentPlayerID),
-		GameState:           string(state.Stage),
+		GameState:           gameStateStr,
+	}
+
+	// 處理多位贏家的資料傳遞
+	if len(state.WinnerIDs) > 0 {
+		winnerStrIds := make([]string, len(state.WinnerIDs))
+		for i, id := range state.WinnerIDs {
+			winnerStrIds[i] = fmt.Sprintf("%d", id)
+		}
+		syncData.WinnerIds = winnerStrIds
 	}
 
 	// 將玩家資料逐一填入
-	// for _, p := range state.Players ...
+	for p := 1; p <= 4; p++ {
+		pInfo := &pb.PlayerInfo{
+			Id:   fmt.Sprintf("%d", p), // 這裡暫用 सीट對應 ID (1-4)
+			Name: fmt.Sprintf("Player %d", p),
+			Seat: int32(p),
+		}
+
+		if state.Players != nil && state.Players[p].ID != 0 {
+			pInfo.Name = state.Players[p].Name
+		}
+
+		// (若需要，這裡可以加上棄牌或手牌數量等)
+
+		// 讀取副露 (Melds)
+		meldsKey := PlayerMeldsKey(gameID, p)
+		meldJSONs, _ := service.RedisClient.LRange(context.Background(), meldsKey, 0, -1).Result()
+		for _, mj := range meldJSONs {
+			var meld models.Meld
+			if err := json.Unmarshal([]byte(mj), &meld); err == nil {
+				pbMeld := &pb.MeldData{
+					Type: int32(meld.Type),
+				}
+				for _, t := range meld.Tiles {
+					pbMeld.Tiles = append(pbMeld.Tiles, int32(t.ID))
+				}
+				pInfo.Melds = append(pInfo.Melds, pbMeld)
+			}
+		}
+
+		// 讀取花牌 (Flowers)
+		flowersKey := PlayerFlowersKey(gameID, p)
+		flowerJSONs, _ := service.RedisClient.LRange(context.Background(), flowersKey, 0, -1).Result()
+		for _, fj := range flowerJSONs {
+			var tile models.Tile
+			if err := json.Unmarshal([]byte(fj), &tile); err == nil {
+				pInfo.Flowers = append(pInfo.Flowers, int32(tile.ID))
+			}
+		}
+
+		syncData.Players = append(syncData.Players, pInfo)
+	}
 
 	return syncData
 }

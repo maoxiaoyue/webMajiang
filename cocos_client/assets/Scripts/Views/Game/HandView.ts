@@ -1,4 +1,4 @@
-import { _decorator, Component, Node } from 'cc';
+import { _decorator, Component, Node, Graphics, Label, Color, UITransform, Vec3 } from 'cc';
 import { TileRenderer } from '../../Core/TileRenderer';
 import { EventMgr } from '../../Events/EventMgr';
 import { NetworkMgr } from '../../Core/NetworkMgr';
@@ -11,6 +11,13 @@ const TILE_SPACING = 64;
 const DEAL_DELAY_SEC = 0.12;
 /** 發牌飛入動畫時長 (秒) */
 const DEAL_ANIM_DURATION = 0.18;
+
+/** 副露與手牌的垂直間距 (px) */
+const OUTDESK_Y_OFFSET = 100;
+/** 副露牌之間的間距 (px) */
+const MELD_SPACING = 55;
+/** 每組副露之間的距離 (px) */
+const MELD_GROUP_SPACING = 20;
 
 /**
  * HandView — 玩家手牌顯示元件
@@ -41,8 +48,10 @@ export class HandView extends Component {
     // ---- 內部狀態 ----
     private _tileIds: number[] = [];
     private _tileNodes: Node[] = [];
+    private _outdeskNodes: Node[] = []; // 副露與花牌節點
     private _isDealing: boolean = false;
     private _onTileClickCallback: ((tileId: number, node: Node) => void) | null = null;
+    private _actionPanel: Node | null = null;
 
     // ============================================================
     // 生命週期
@@ -125,8 +134,81 @@ export class HandView extends Component {
             n.removeFromParent();
             n.destroy();
         }
+        for (const n of this._outdeskNodes) {
+            n.removeFromParent();
+            n.destroy();
+        }
         this._tileNodes = [];
+        this._outdeskNodes = [];
         this._tileIds = [];
+    }
+
+    /** 設定玩家副露 (碰/吃/槓) 與花牌 */
+    public setOutdesk(melds: { type: number, tiles: number[] }[], flowers: number[]): void {
+        // 先清空舊的副露節點
+        for (const n of this._outdeskNodes) {
+            n.removeFromParent();
+            n.destroy();
+        }
+        this._outdeskNodes = [];
+
+        // 計算起始位置 (最左側開始排)
+        let currentX = -((16 * TILE_SPACING) / 2); // 預設以 16 張牌寬度作為基準左側
+        const startY = OUTDESK_Y_OFFSET;
+
+        // 1. 繪製花牌
+        if (flowers && flowers.length > 0) {
+            for (const fId of flowers) {
+                // 花牌一律正面立在桌上，但為求美觀可以用 FaceUp 或者 FaceUpWithTop
+                const node = TileRenderer.createStandingTile(fId);
+                node.setPosition(currentX, startY, 0);
+                node.parent = this.node;
+                // 標示花牌半透明或稍微縮小以區別
+                const uiTrans = node.getComponent(UITransform);
+                if (uiTrans) {
+                    node.scale = new Vec3(0.8, 0.8, 1);
+                }
+                this._outdeskNodes.push(node);
+                currentX += (TILE_SPACING * 0.8) + 5;
+            }
+            currentX += MELD_GROUP_SPACING;
+        }
+
+        // 2. 繪製副露 (吃碰槓)
+        if (melds && melds.length > 0) {
+            for (const m of melds) {
+                // type: 1(吃), 2(碰), 3(明槓), 4(暗槓), 5(加槓)
+                const isHiddenKong = (m.type === 4);
+
+                for (let i = 0; i < m.tiles.length; i++) {
+                    const tId = m.tiles[i];
+                    let node: Node;
+
+                    if (isHiddenKong) {
+                        // 暗槓不翻面，統一給對手背牌
+                        node = TileRenderer.createOpponentTile();
+                    } else {
+                        // 明牌副露，平躺顯示，使用 FaceUp
+                        node = TileRenderer.createTileNode(tId, 0); // 0 = FaceUp
+                    }
+
+                    node.setPosition(currentX, startY, 0);
+                    node.parent = this.node;
+                    this._outdeskNodes.push(node);
+                    currentX += MELD_SPACING;
+
+                    // 加槓 (第四張疊在第二張上面)
+                    if (m.type === 5 && i === 3) {
+                        const baseIndex = this._outdeskNodes.length - 3; // 取出第二張的位置
+                        if (baseIndex >= 0) {
+                            const baseNode = this._outdeskNodes[baseIndex];
+                            node.setPosition(baseNode.position.x, startY + 20, 0); // Y 軸往上疊
+                        }
+                    }
+                }
+                currentX += MELD_GROUP_SPACING;
+            }
+        }
     }
 
     /** 設定點牌回呼（供 GameView 等外層接管點牌事件） */
@@ -136,6 +218,90 @@ export class HandView extends Component {
 
     /** 目前手牌 ID 列表 */
     public get tileIds(): number[] { return [...this._tileIds]; }
+
+    // ============================================================
+    // 玩家宣告按鈕 (碰/吃/槓/胡/過)
+    // ============================================================
+
+    public showActionButtons(roomId: string, tileId: number): void {
+        if (!this.isSelf) return;
+        if (!this._actionPanel) {
+            this._createActionPanel();
+        }
+        this._actionPanel!.active = true;
+
+        // 定位在最新進牌（最右側）的正上方
+        const rightmostX = this._calcX(this._tileIds.length, this._tileIds.length + 1);
+        this._actionPanel!.setPosition(rightmostX, 150, 0);
+
+        // 重新綁定事件以更新 tileId 與 roomId
+        this._actionPanel!.children.forEach((btnNode: Node) => {
+            btnNode.off(Node.EventType.TOUCH_END);
+            const actionTypeStr = btnNode.name;
+            let actionType = 6; // pass
+            if (actionTypeStr === 'chow') actionType = 2;
+            if (actionTypeStr === 'pong') actionType = 3;
+            if (actionTypeStr === 'kong') actionType = 4;
+            if (actionTypeStr === 'hu') actionType = 5;
+
+            btnNode.on(Node.EventType.TOUCH_END, () => {
+                console.log(`[HandView] 玩家宣告: ${actionTypeStr}, tileId: ${tileId}`);
+                NetworkMgr.instance.send('player_action', {
+                    roomId: roomId,
+                    actionType: actionType,
+                    tileId: tileId
+                });
+                this.hideActionButtons();
+            });
+        });
+    }
+
+    public hideActionButtons(): void {
+        if (this._actionPanel) {
+            this._actionPanel.active = false;
+        }
+    }
+
+    private _createActionPanel(): void {
+        this._actionPanel = new Node('ActionPanel');
+        this._actionPanel.parent = this.node;
+
+        const actions = [
+            { name: 'chow', text: '吃', color: new Color(50, 150, 50, 240) },
+            { name: 'pong', text: '碰', color: new Color(50, 100, 200, 240) },
+            { name: 'kong', text: '槓', color: new Color(200, 150, 50, 240) },
+            { name: 'hu', text: '胡', color: new Color(200, 50, 50, 240) },
+            { name: 'pass', text: '過', color: new Color(100, 100, 100, 240) }
+        ];
+
+        const panelWidth = actions.length * 80;
+        let startX = -panelWidth / 2 + 40;
+
+        actions.forEach((act, index) => {
+            const btnNode = new Node(act.name);
+            btnNode.parent = this._actionPanel;
+            btnNode.setPosition(startX + index * 80, 0, 0);
+
+            // 新增 UITransform 以接收互動事件與設定大小
+            const uiTrans = btnNode.addComponent(UITransform);
+            uiTrans.setContentSize(70, 70);
+
+            // 繪製圓角矩形背景
+            const graphics = btnNode.addComponent(Graphics);
+            graphics.fillColor = act.color;
+            graphics.roundRect(-35, -35, 70, 70, 15);
+            graphics.fill();
+
+            // 加入文字標籤
+            const labelNode = new Node('Label');
+            labelNode.parent = btnNode;
+            const label = labelNode.addComponent(Label);
+            label.string = act.text;
+            label.fontSize = 28;
+            label.color = Color.WHITE;
+            label.isBold = true;
+        });
+    }
 
     // ============================================================
     // 私有輔助

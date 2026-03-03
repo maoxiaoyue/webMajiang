@@ -110,6 +110,7 @@ func RoundFromNumber(n int) GameRound {
 type DiceResult struct {
 	Die1  int `json:"die1"`  // 第一顆骰子 (1-6)
 	Die2  int `json:"die2"`  // 第二顆骰子 (1-6)
+	Die3  int `json:"die3"`  // 第三顆骰子 (1-6)，供 16 張玩法使用
 	Total int `json:"total"` // 點數總和
 }
 
@@ -121,6 +122,7 @@ const (
 	StageDeterminePositions GameStage = "DETERMINE_POSITIONS" // 開始 -> 擲骰子決定位置
 	StageDetermineDealer    GameStage = "DETERMINE_DEALER"    // 坐下後擲骰子決定東風位置
 	StageDealing            GameStage = "DEALING"             // 第一局開始取牌/發牌
+	StageReplaceFlower      GameStage = "REPLACE_FLOWER"      // 16張開局強制補花階段
 	StagePlayerDraw         GameStage = "PLAYER_DRAW"         // 玩家摸牌階段 (包含開門)
 	StagePlayerDiscard      GameStage = "PLAYER_DISCARD"      // 玩家出牌階段
 	StageWaitAction         GameStage = "WAIT_ACTION"         // 等待其他家宣告 (碰/槓/胡)
@@ -138,17 +140,37 @@ const (
 
 // GameState 完整遊戲狀態（存放在 Redis 中）
 type GameState struct {
-	GameID              string         `json:"game_id"`
-	GameType            GameType       `json:"game_type"`              // 遊戲類型 (13 或 16)
-	Stage               GameStage      `json:"stage"`                  // 目前遊戲階段
-	CurrentPlayerID     int            `json:"current_player_id"`      // 目前輪到的玩家代號 (1-4)
-	Round               GameRound      `json:"round"`                  // 目前局號
-	DealerPlayerID      int            `json:"dealer_player_id"`       // 莊家玩家代號 (1-4)
-	Dice                DiceResult     `json:"dice"`                   // 擲骰子結果
-	IsStarted           bool           `json:"is_started"`             // 是否已開始
-	IsFinished          bool           `json:"is_finished"`            // 一將是否結束
-	Players             map[int]Player `json:"players"`                // 玩家列表 (SeatID 1-4 對應 -> Player)
-	LastDiscardTile     *Tile          `json:"last_discard_tile"`      // 最新打出的一張牌 (可為 null)
-	LastDiscardPlayerID int            `json:"last_discard_player_id"` // 是誰打出最新的這張牌
-	ActionDeclarations  map[int]string `json:"action_declarations"`    // 紀錄各家在 WAIT_ACTION 階段宣吿的動作 ("pass", "pong", "kong", "hu")
+	GameID              string              `json:"game_id"`
+	GameType            GameType            `json:"game_type"`              // 遊戲類型 (13 或 16)
+	Stage               GameStage           `json:"stage"`                  // 目前遊戲階段
+	CurrentPlayerID     int                 `json:"current_player_id"`      // 目前輪到的玩家代號 (1-4)
+	Round               GameRound           `json:"round"`                  // 目前局號
+	DealerPlayerID      int                 `json:"dealer_player_id"`       // 莊家玩家代號 (1-4)
+	Dice                DiceResult          `json:"dice"`                   // 擲骰子結果
+	IsStarted           bool                `json:"is_started"`             // 是否已開始
+	IsFinished          bool                `json:"is_finished"`            // 一將是否結束
+	Players             map[int]Player      `json:"players"`                // 玩家列表 (SeatID 1-4 對應 -> Player)
+	LastDiscardTile     *Tile               `json:"last_discard_tile"`      // 最新打出的一張牌 (可為 null)
+	LastDiscardPlayerID int                 `json:"last_discard_player_id"` // 是誰打出最新的這張牌
+	ActionDeclarations  map[int]string      `json:"action_declarations"`    // 紀錄各家在 WAIT_ACTION 階段宣吿的動作 ("pass", "pong", "kong", "hu")
+	WinnerIDs           []int               `json:"winner_ids"`             // 遊戲結束時贏家的 ID 列表 (支援一砲多響)
+	IsAfterKong         bool                `json:"is_after_kong"`          // 是否剛槓牌 (用於計算槓上開花)
+	ScoreResults        map[int]ScoreResult `json:"score_results"`          // 紀錄每位贏家的台數與牌型結算
+}
+
+// MeldType 副露類型
+type MeldType int
+
+const (
+	MeldTypeChow       MeldType = 1 // 吃
+	MeldTypePong       MeldType = 2 // 碰
+	MeldTypeKong       MeldType = 3 // 明槓
+	MeldTypeHiddenKong MeldType = 4 // 暗槓
+	MeldTypeAddKong    MeldType = 5 // 加槓
+)
+
+// Meld 代表玩家的一組副露 (吃、碰、槓)
+type Meld struct {
+	Type  MeldType `json:"type"`
+	Tiles []Tile   `json:"tiles"` // 組成這副副露的具體牌
 }

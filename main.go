@@ -13,11 +13,16 @@ import (
 	"webmajiang/controllers"
 	"webmajiang/routers"
 	"webmajiang/service"
+	"webmajiang/utils"
 )
 
 // AppConfig 應用程式配置（包含 Redis）
 type AppConfig struct {
 	Redis service.RedisConfig `yaml:"redis"`
+	SMTP  utils.SMTPConfig    `yaml:"smtp"`
+	JWT   struct {
+		Secret string `yaml:"secret"`
+	} `yaml:"jwt"`
 }
 
 func main() {
@@ -54,6 +59,13 @@ func main() {
 	}
 	defer service.CloseRedis()
 	log.Info("Redis connected at %s", appCfg.Redis.Addr)
+
+	// 初始化 Utils
+	utils.InitEmail(&appCfg.SMTP)
+	if appCfg.JWT.Secret == "" {
+		appCfg.JWT.Secret = "default_secret_key_change_me_in_prod"
+	}
+	utils.InitJWT(appCfg.JWT.Secret)
 
 	// 建立伺服器
 	srv := server.New(cfg, log)
