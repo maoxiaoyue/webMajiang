@@ -1,6 +1,10 @@
 server:
   addr: ":8080"
-  protocol: "http1"
+  protocol: "auto" # 啟用 HTTP/3 + HTTP/2 (帶 fallback 到 HTTP/1.1)
+  tls:
+    enabled: true
+    cert_file: "cert.pem"
+    key_file: "key.pem"
   read_timeout: 30s
   write_timeout: 30s
   enable_graceful_restart: true

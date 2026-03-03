@@ -97,7 +97,7 @@ func main() {
 	// 靜態檔案
 	srv.Static("/static", "static")
 
-	// 啟動伺服器
+	// 啟動伺服器 (將由 hypgo 內部依 config.yaml 使用 Auto/HTTP3)
 	log.Info("Starting Web Majiang Game server on %s", cfg.Server.Addr)
 	if err := srv.Start(); err != nil {
 		log.Fatal("Server failed to start: %v", err)
