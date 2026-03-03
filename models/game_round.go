@@ -128,9 +128,18 @@ const (
 	StageGameOver           GameStage = "GAME_OVER"           // 遊戲終局
 )
 
+// GameType 遊戲類型 (13張 或 16張)
+type GameType int
+
+const (
+	GameType13 GameType = 13 // 13張玩法 (不含花牌，136張)
+	GameType16 GameType = 16 // 16張玩法 (含花牌，144張)
+)
+
 // GameState 完整遊戲狀態（存放在 Redis 中）
 type GameState struct {
 	GameID              string         `json:"game_id"`
+	GameType            GameType       `json:"game_type"`              // 遊戲類型 (13 或 16)
 	Stage               GameStage      `json:"stage"`                  // 目前遊戲階段
 	CurrentPlayerID     int            `json:"current_player_id"`      // 目前輪到的玩家代號 (1-4)
 	Round               GameRound      `json:"round"`                  // 目前局號

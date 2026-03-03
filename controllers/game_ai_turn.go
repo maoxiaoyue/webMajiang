@@ -47,8 +47,13 @@ func ProcessAITurn(ctx context.Context, gameID string, p models.Player) error {
 	discardTile := models.GetBestDiscard(p.Hand)
 	fmt.Printf("[AI Turn] 玩家 %d 決定丟出 %s\n", p.ID, discardTile.String())
 
-	// 4. TODO: 實作丟牌至海底，並切換到下一位玩家
-	// DiscardTile(ctx, gameID, p.ID, discardTile)
+	// 4. 丟牌至海底 (使用 DiscardTileAction 更新遊戲狀態)
+	if _, err := DiscardTileAction(ctx, gameID, p.ID, discardTile); err != nil {
+		return fmt.Errorf("AI 丟牌失敗: %w", err)
+	}
+
+	// 5. 等待其他玩家動作 (吃碰槓胡)
+	// (註: DiscardTileAction 已將 Stage 設為 WaitAction，後續將由系統的 ResolveActions 決定下一位)
 
 	return nil
 }

@@ -14,9 +14,15 @@ import (
 	"webmajiang/service"
 )
 
-// NewDeck 初始化 144 張麻將牌
-func NewDeck() []models.Tile {
-	deck := make([]models.Tile, 0, 144)
+// NewDeck 根據遊戲類型初始化麻將牌
+// GameType13: 136 張 (不含花牌)
+// GameType16: 144 張 (含花牌)
+func NewDeck(gameType models.GameType) []models.Tile {
+	capacity := 144
+	if gameType == models.GameType13 {
+		capacity = 136
+	}
+	deck := make([]models.Tile, 0, capacity)
 	id := 0
 
 	// 萬、筒、條 各 1-9，每種 4 張 → 3 × 9 × 4 = 108 張
@@ -57,14 +63,17 @@ func NewDeck() []models.Tile {
 		}
 	}
 
-	// 花牌: 梅蘭竹菊春夏秋冬，各 1 張 → 8 張
-	for value := 1; value <= 8; value++ {
-		deck = append(deck, models.Tile{
-			ID:    id,
-			Type:  models.Flower,
-			Value: value,
-		})
-		id++
+	// 花牌: 只有 16 張玩法才加入花牌
+	if gameType == models.GameType16 {
+		// 花牌: 梅蘭竹菊春夏秋冬，各 1 張 → 8 張
+		for value := 1; value <= 8; value++ {
+			deck = append(deck, models.Tile{
+				ID:    id,
+				Type:  models.Flower,
+				Value: value,
+			})
+			id++
+		}
 	}
 
 	return deck
@@ -139,11 +148,12 @@ func DeckRedisKey(gameID string) string {
 	return fmt.Sprintf("game:%s:deck", gameID)
 }
 
-// InitDeckToRedis 生成 144 張牌 → ChaCha20 洗牌 → LPUSH 到 Redis list
-// 回傳 gameID 用來識別這場遊戲的牌堆
-func InitDeckToRedis(ctx context.Context, gameID string) error {
+// InitDeckToRedis 根據遊戲類型生成牌堆 → ChaCha20 洗牌 → LPUSH 到 Redis list
+// GameType13: 136 張 (不含花牌)
+// GameType16: 144 張 (含花牌)
+func InitDeckToRedis(ctx context.Context, gameID string, gameType models.GameType) error {
 	// 1. 生成牌堆
-	deck := NewDeck()
+	deck := NewDeck(gameType)
 
 	// 2. 使用 crypto/rand + ChaCha20 洗牌
 	if err := ShuffleChacha20(deck); err != nil {
