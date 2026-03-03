@@ -7,7 +7,8 @@ export interface PlayerData {
     score: number;
     handTiles: number[]; // 手牌 ID 陣列
     discardedTiles: number[]; // 打出的牌
-    meldTiles: any[]; // 吃碰槓的牌
+    melds: { type: number, tiles: number[] }[]; // 吃碰槓的牌
+    flowers: number[]; // 花牌
 }
 
 /**
@@ -26,6 +27,9 @@ export class GameModel extends BaseModel {
     // 遊戲狀態
     public currentTurnPlayerId: string = ""; // 當前出牌玩家
     public gameState: string = "waiting"; // waiting, playing, complete
+    public winnerIds: string[] = []; // 遊戲結束時贏家的 ID 列表 (支援一砲多響)
+    public lastDiscardedTileId: number = -1; // 最後被打出的牌
+    public scoreResults: any = null; // 結算台數與牌型資料
 
     /**
      * 更新整個遊戲狀態

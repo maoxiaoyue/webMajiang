@@ -216,6 +216,16 @@ func PlayerHandKey(gameID string, playerID int) string {
 	return fmt.Sprintf("game:%s:player%d", gameID, playerID)
 }
 
+// PlayerMeldsKey 玩家副露在 Redis 中的 key 格式 (碰/吃/明暗槓)
+func PlayerMeldsKey(gameID string, playerID int) string {
+	return fmt.Sprintf("game:%s:player%d:melds", gameID, playerID)
+}
+
+// PlayerFlowersKey 玩家花牌在 Redis 中的 key 格式
+func PlayerFlowersKey(gameID string, playerID int) string {
+	return fmt.Sprintf("game:%s:player%d:flowers", gameID, playerID)
+}
+
 // DealTiles 發牌：從 Redis 牌堆 RPOP，按麻將規則輪流發給 4 位玩家
 // 發牌順序：
 //  1. 輪流摸 4 張 × 3 輪 = 每人 12 張
@@ -404,6 +414,61 @@ func RemoveTileFromPlayerHand(ctx context.Context, gameID string, playerID int, 
 	}
 
 	return nil
+}
+
+// RemoveTilesFromPlayerHand 從玩家手牌中移除指定數量、特定花色與數字的牌，並回傳被移除的牌陣列 (用於吃碰槓)
+func RemoveTilesFromPlayerHand(ctx context.Context, gameID string, playerID int, targetCount int, tileType models.TileType, tileValue int) ([]models.Tile, error) {
+	rdb := service.RedisClient
+	playerKey := PlayerHandKey(gameID, playerID)
+
+	tileJSONs, err := rdb.LRange(ctx, playerKey, 0, -1).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read player%d hand: %w", playerID, err)
+	}
+
+	var removedTiles []models.Tile
+	var remainingTiles []models.Tile
+	removedCount := 0
+
+	for _, tj := range tileJSONs {
+		var tile models.Tile
+		if err := json.Unmarshal([]byte(tj), &tile); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tile: %w", err)
+		}
+
+		if removedCount < targetCount && tile.Type == tileType && tile.Value == tileValue {
+			removedTiles = append(removedTiles, tile)
+			removedCount++
+			continue
+		}
+		remainingTiles = append(remainingTiles, tile)
+	}
+
+	if removedCount < targetCount {
+		return nil, fmt.Errorf("not enough tiles found to remove (needed %d, found %d)", targetCount, removedCount)
+	}
+
+	// 重新寫回 Redis (已移除指定的牌)
+	if err := rdb.Del(ctx, playerKey).Err(); err != nil {
+		return nil, fmt.Errorf("failed to clear player%d hand for bulk removal: %w", playerID, err)
+	}
+
+	if len(remainingTiles) > 0 {
+		sortedJSONs := make([]interface{}, len(remainingTiles))
+		for i, tile := range remainingTiles {
+			data, err := json.Marshal(tile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal remaining tile: %w", err)
+			}
+			sortedJSONs[i] = string(data)
+		}
+
+		if err := rdb.RPush(ctx, playerKey, sortedJSONs...).Err(); err != nil {
+			return nil, fmt.Errorf("failed to write remaining hand: %w", err)
+		}
+	}
+
+	return removedTiles, nil
 }
 
 // GetAllPlayersHands 取得所有玩家的手牌（含牌名）

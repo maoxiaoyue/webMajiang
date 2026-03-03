@@ -14,21 +14,23 @@ message WSMessage {
     bytes data = 2;         // 具體的 Protobuf 序列化資料
 }
 
-// ==============================================
-// 玩家與房間基礎資訊
-// ==============================================
 message PlayerInfo {
     string id = 1;
     string name = 2;
-    int32 seat = 3;         // 0: 東, 1: 南, 2: 西, 3: 北
+    int32 seat = 3;
     int32 score = 4;
-    repeated int32 hand_tiles = 5;       // 手牌 (若不公開則可能留空或只傳長度)
-    repeated int32 discarded_tiles = 6;  // 丟出的牌
-    repeated MeldData melds = 7;         // 吃碰槓的牌
+    int32 hand_count = 5;
+    string connection_status = 6;
+    repeated MeldData melds = 7;
+    repeated int32 flowers = 8;
+    
+    // 結算專用
+    int32 total_tai = 9;
+    map<string, int32> patterns = 10;
 }
 
 message MeldData {
-    int32 type = 1;         // 1: 吃(Chow), 2: 碰(Pong), 3: 槓(Kong)
+    int32 type = 1;         // 1: 吃(Chow), 2: 碰(Pong), 3: 槓(明槓), 4: 暗槓(HiddenKong), 5: 加槓(加明槓)
     repeated int32 tiles = 2;// 組成這副副露的具體牌 ID
 }
 
@@ -42,6 +44,7 @@ message SyncStateData {
     string current_turn_player_id = 4;   // 輪到誰出牌
     string game_state = 5;               // "waiting", "playing", "complete"
     repeated PlayerInfo players = 6;     // 玩家狀態列表
+    repeated string winner_ids = 7;      // 遊戲結束時多位贏家的 ID 列表
 }
 
 // 發給特定玩家的發牌資訊

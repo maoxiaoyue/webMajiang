@@ -96,8 +96,31 @@ export class GameView extends BaseView {
         if (!discardNode) return;
 
         discardNode.removeAllChildren();
-        for (const tileId of tileIds) {
+
+        // 棄牌區網格設定 (每排 6 張，縮小顯示)
+        const maxCols = 6;
+        const scale = 0.6;
+        const tileW = 60 * scale;
+        const tileH = 84 * scale;
+        const spacX = tileW;
+        const spacY = tileH + 4; // 垂直稍微留空隙
+
+        for (let i = 0; i < tileIds.length; i++) {
+            const tileId = tileIds[i];
             const tileNode = TileRenderer.createDiscardTile(tileId);
+
+            tileNode.setScale(scale, scale, 1);
+
+            const row = Math.floor(i / maxCols);
+            const col = i % maxCols;
+
+            // 以 discardNode 中心為基準，由左而右 (col * spacX)，由上而下 (-row * spacY)
+            // 將整塊區域稍微置中起算
+            const startX = -((maxCols - 1) * spacX) / 2;
+            const x = startX + col * spacX;
+            const y = -row * spacY;
+
+            tileNode.setPosition(x, y, 0);
             discardNode.addChild(tileNode);
         }
     }
@@ -119,10 +142,38 @@ export class GameView extends BaseView {
             for (const player of modelInfo.players) {
                 if (player.seat === 0) {
                     this.renderHandTiles(player.handTiles || []);
+                    const handView = this.playerHandNodes[0]?.getComponent("HandView") as any;
+                    if (handView && handView.setOutdesk) {
+                        handView.setOutdesk(player.melds || [], player.flowers || []);
+                    }
                 } else {
                     this.renderOpponentHand(player.seat, (player.handTiles || []).length);
+                    // TODO: 對手目前尚未建立專屬的 Outdesk 繪製方法，未來可共用或獨立實作
                 }
                 this.renderDiscardTiles(player.seat, player.discardedTiles || []);
+            }
+        }
+
+        // 檢查是否需要顯示玩家宣告按鈕 (碰/吃/槓/胡/過)
+        if (modelInfo.gameState === "WAIT_ACTION") {
+            const handView = this.playerHandNodes[0]?.getComponent("HandView") as any;
+            if (handView && modelInfo.roomId) {
+                // TODO: 判斷自己是否出牌者
+                handView.showActionButtons(modelInfo.roomId, modelInfo.lastDiscardedTileId || -1);
+            }
+        } else {
+            const handView = this.playerHandNodes[0]?.getComponent("HandView") as any;
+            if (handView) {
+                handView.hideActionButtons();
+            }
+        }
+
+        // 遊戲結束或結算階段，顯示贏家資訊 (一炮多響)
+        if (modelInfo.gameState === "ROUND_OVER" || modelInfo.gameState === "GAME_OVER") {
+            if (modelInfo.winnerIds && modelInfo.winnerIds.length > 0) {
+                console.log(`[GameView] 遊戲結算！贏家 ID: ${modelInfo.winnerIds.join(", ")}`);
+            } else {
+                console.log(`[GameView] 遊戲結算！(流局/無贏家)`);
             }
         }
     }
