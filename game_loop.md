@@ -1,4 +1,4 @@
-# 補全遊戲進行中 Player 1-4 等待/互動流程 — Walkthrough
+# 補全遊戲進行中 Player 1-4 等待/互動流程
 
 ## 變更概覽
 
@@ -47,15 +47,3 @@ graph TD
 ### [game.go](file:///d:/GoProjects/webMajiangGame/controllers/game.go) 新增
 
 - **[DrawTileAction](file:///d:/GoProjects/webMajiangGame/controllers/game.go#314-365)** — PLAYER_DRAW 階段的正式控制函式（含牌堆耗盡→荒莊流局）
-
-## 驗證結果
-
-```
-✅ go build ./...    — 編譯通過
-✅ go test ./... -v  — 全部測試通過
-
-=== RUN   TestGetBestDiscard
---- PASS: TestGetBestDiscard (0.00s)
-=== RUN   TestGetBestDiscard_EdgeTile
---- PASS: TestGetBestDiscard_EdgeTile (0.00s)
-```

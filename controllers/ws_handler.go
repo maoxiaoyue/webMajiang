@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"webmajiang/models"
 	"webmajiang/models/pb"
+	"webmajiang/utils"
 
 	"github.com/maoxiaoyue/hypgo/pkg/websocket"
 	"google.golang.org/protobuf/proto"
@@ -74,7 +75,7 @@ func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 		handleGetDeckCount(ctx, client, action, req.Data)
 
 	default:
-		fmt.Printf("Unhandled websocket action type: %s\n", action)
+		utils.Info("Unhandled websocket action type: %s", action)
 	}
 }
 
@@ -209,7 +210,7 @@ func handleDealTiles(ctx context.Context, client *websocket.Client, action strin
 	if ok && dealer.IsBot {
 		go func() {
 			if err := ProcessAITurn(context.Background(), gameID, dealer); err != nil {
-				fmt.Printf("[WS] AI 莊家自動出牌失敗: %v\n", err)
+				utils.Error("[WS] AI 莊家自動出牌失敗: %v", err)
 			}
 			// 出牌後廣播最新狀態
 			if newState, err := LoadGameState(context.Background(), gameID); err == nil {
@@ -333,7 +334,7 @@ func handleDiscardTile(ctx context.Context, client *websocket.Client, action str
 	go func() {
 		newState, err := RunPostDiscard(context.Background(), gameID)
 		if err != nil {
-			fmt.Printf("[WS] RunPostDiscard failed: %v\n", err)
+			utils.Error("[WS] RunPostDiscard failed: %v", err)
 			return
 		}
 		if newState != nil {
@@ -402,7 +403,7 @@ func handlePlayerAction(ctx context.Context, client *websocket.Client, action st
 		go func() {
 			newState, err := RunPostDiscard(context.Background(), gameID)
 			if err != nil {
-				fmt.Printf("[WS] RunPostDiscard failed: %v\n", err)
+				utils.Error("[WS] RunPostDiscard failed: %v", err)
 				return
 			}
 			if newState != nil {
@@ -417,7 +418,7 @@ func handlePlayerAction(ctx context.Context, client *websocket.Client, action st
 		go func() {
 			newState, err := RunPostResolve(context.Background(), gameID)
 			if err != nil {
-				fmt.Printf("[WS] RunPostResolve failed: %v\n", err)
+				utils.Error("[WS] RunPostResolve failed: %v", err)
 				return
 			}
 			if newState != nil {
@@ -536,7 +537,7 @@ func handleGetDeckCount(ctx context.Context, client *websocket.Client, action st
 func sendProtoResponse(client *websocket.Client, action string, data proto.Message) {
 	b, err := proto.Marshal(data)
 	if err != nil {
-		fmt.Println("Error marshaling proto data:", err)
+		utils.Error("Error marshaling proto data: %v", err)
 		return
 	}
 
@@ -562,9 +563,17 @@ func sendProtoBroadcast(hub *websocket.Hub, action string, data proto.Message) {
 	hub.Broadcast(outBytes)
 }
 
-func sendWSError(_ *websocket.Client, action string, errorMsg string) {
-	// 簡單封裝錯誤訊息，實務上可自訂 Error Res Proto
-	fmt.Printf("[WS Protobuf Error] Action: %s, Err: %s\n", action, errorMsg)
+func sendWSError(client *websocket.Client, action string, errorMsg string) {
+	utils.Error("[WS Protobuf Error] Action: %s, Err: %s", action, errorMsg)
+
+	// Send to frontend as [DEBUG]
+	debugMsg := fmt.Sprintf("[DEBUG] Action: %s, Err: %s", action, errorMsg)
+
+	// 簡單封裝錯誤訊息回傳給前端
+	sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+		Success: false,
+		Message: debugMsg,
+	})
 }
 
 // 幫助函數：將 GameState 轉換為 protobuf 定義的 SyncStateData

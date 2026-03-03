@@ -5,13 +5,14 @@ import (
 	"fmt"
 
 	"webmajiang/models"
+	"webmajiang/utils"
 )
 
 // ProcessAITurn 處理 AI 玩家的回合（從摸牌到出牌的完整流程）
 // 此函式由 game_loop 中的 runAIDrawAndDiscard 取代日常調用
 // 保留作為獨立的 AI 回合入口（例如首次莊家出牌等情境）
 func ProcessAITurn(ctx context.Context, gameID string, p models.Player) error {
-	fmt.Printf("[AI Turn] 輪到 AI 玩家 %d (%s) 動作...\n", p.ID, p.Name)
+	utils.Info("[AI Turn] 輪到 AI 玩家 %d (%s) 動作...", p.ID, p.Name)
 
 	state, err := LoadGameState(ctx, gameID)
 	if err != nil {

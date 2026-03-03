@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"webmajiang/models"
+	"webmajiang/utils"
 )
 
 // RunPostDiscard 出牌後觸發的遊戲推進邏輯
@@ -40,11 +41,11 @@ func RunPostDiscard(ctx context.Context, gameID string) (*models.GameState, erro
 		// AI 自動判斷要宣告什麼
 		aiAction, err := ProcessAIResponse(ctx, gameID, pID, state.LastDiscardTile)
 		if err != nil {
-			fmt.Printf("[GameLoop] AI 玩家 %d 宣告失敗: %v\n", pID, err)
+			utils.Error("[GameLoop] AI 玩家 %d 宣告失敗: %v", pID, err)
 			aiAction = "pass"
 		}
 
-		fmt.Printf("[GameLoop] AI 玩家 %d 宣告: %s\n", pID, aiAction)
+		utils.Info("[GameLoop] AI 玩家 %d 宣告: %s", pID, aiAction)
 
 		// 透過 PlayerDeclareAction 記錄宣告
 		state, err = PlayerDeclareAction(ctx, gameID, pID, aiAction)
@@ -86,7 +87,7 @@ func RunPostResolve(ctx context.Context, gameID string) (*models.GameState, erro
 
 	switch state.Stage {
 	case models.StageRoundOver:
-		fmt.Printf("[GameLoop] 遊戲結束 (ROUND_OVER)\n")
+		utils.Info("[GameLoop] 遊戲結束 (ROUND_OVER)")
 		return state, nil
 
 	case models.StagePlayerDraw:
@@ -97,12 +98,12 @@ func RunPostResolve(ctx context.Context, gameID string) (*models.GameState, erro
 		}
 
 		if nextPlayer.IsBot {
-			fmt.Printf("[GameLoop] 下家是 AI 玩家 %d，自動摸牌+出牌...\n", nextPlayer.ID)
+			utils.Info("[GameLoop] 下家是 AI 玩家 %d，自動摸牌+出牌...", nextPlayer.ID)
 			return runAIDrawAndDiscard(ctx, gameID, nextPlayer)
 		}
 
 		// 真人玩家需透過 WebSocket 手動摸牌
-		fmt.Printf("[GameLoop] 輪到真人玩家 %d 摸牌，等待 WebSocket draw_tile...\n", nextPlayer.ID)
+		utils.Info("[GameLoop] 輪到真人玩家 %d 摸牌，等待 WebSocket draw_tile...", nextPlayer.ID)
 		return state, nil
 
 	case models.StagePlayerDiscard:
@@ -113,12 +114,12 @@ func RunPostResolve(ctx context.Context, gameID string) (*models.GameState, erro
 		}
 
 		if winner.IsBot {
-			fmt.Printf("[GameLoop] 碰/吃得標者是 AI 玩家 %d，自動出牌...\n", winner.ID)
+			utils.Info("[GameLoop] 碰/吃得標者是 AI 玩家 %d，自動出牌...", winner.ID)
 			return runAIDiscard(ctx, gameID, winner)
 		}
 
 		// 真人玩家需透過 WebSocket 手動出牌
-		fmt.Printf("[GameLoop] 碰/吃得標者是真人玩家 %d，等待 WebSocket discard_tile...\n", winner.ID)
+		utils.Info("[GameLoop] 碰/吃得標者是真人玩家 %d，等待 WebSocket discard_tile...", winner.ID)
 		return state, nil
 
 	default:
@@ -177,11 +178,11 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 
 	// 荒莊流局
 	if drawnTile == nil {
-		fmt.Printf("[AI Turn] 牌堆已空，荒莊流局\n")
+		utils.Info("[AI Turn] 牌堆已空，荒莊流局")
 		return state, nil
 	}
 
-	fmt.Printf("[AI Turn] 玩家 %d 摸到了 %s\n", player.ID, drawnTile.String())
+	utils.Info("[AI Turn] 玩家 %d 摸到了 %s", player.ID, drawnTile.String())
 
 	// 2. 取得最新手牌
 	hand, err := GetPlayerHand(ctx, gameID, player.ID)
@@ -191,7 +192,7 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 
 	// 3. 檢查是否自摸
 	if models.CanHu(hand) {
-		fmt.Printf("[AI Turn] 🌟 玩家 %d 自摸了！\n", player.ID)
+		utils.Info("[AI Turn] 🌟 玩家 %d 自摸了！", player.ID)
 		state, err = LoadGameState(ctx, gameID)
 		if err != nil {
 			return nil, err
@@ -222,7 +223,7 @@ func runAIDiscard(ctx context.Context, gameID string, player models.Player) (*mo
 	}
 
 	discardTile := models.GetBestDiscard(player.Hand)
-	fmt.Printf("[AI Turn] 玩家 %d 決定丟出 %s\n", player.ID, discardTile.String())
+	utils.Info("[AI Turn] 玩家 %d 決定丟出 %s", player.ID, discardTile.String())
 
 	if _, err := DiscardTileAction(ctx, gameID, player.ID, discardTile); err != nil {
 		return nil, fmt.Errorf("AI 丟牌失敗: %w", err)
