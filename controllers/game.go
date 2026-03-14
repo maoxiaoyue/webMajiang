@@ -214,6 +214,46 @@ func StartNewGame(ctx context.Context, gameID string, gameType models.GameType) 
 	return state, nil
 }
 
+// StartNewGameWithPlayers 開始新的一將，使用外部傳入的玩家列表
+// 由 gamelobby 的 internal API 呼叫
+func StartNewGameWithPlayers(ctx context.Context, gameID string, gameType models.GameType, players map[int]models.Player) (*models.GameState, error) {
+	if gameType != models.GameType13 && gameType != models.GameType16 {
+		gameType = models.GameType16
+	}
+
+	state := &models.GameState{
+		GameID:          gameID,
+		GameType:        gameType,
+		Stage:           models.StageWaitingPlayers,
+		CurrentPlayerID: 0,
+		Round:           models.NewFirstRound(),
+		DealerPlayerID:  0,
+		IsStarted:       true,
+		IsFinished:      false,
+		Players:         players,
+	}
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+
+	status := &GameStatus{
+		Type:     int(gameType),
+		Player1:  buildPlayerIdentifier(state.Players[1]),
+		Player2:  buildPlayerIdentifier(state.Players[2]),
+		Player3:  buildPlayerIdentifier(state.Players[3]),
+		Player4:  buildPlayerIdentifier(state.Players[4]),
+		Dealer:   "",
+		Start:    time.Now().Unix(),
+		Progress: state.Round.RoundCode(),
+	}
+	if err := SaveGameStatus(ctx, gameID, status); err != nil {
+		return nil, fmt.Errorf("failed to save game status: %w", err)
+	}
+
+	return state, nil
+}
+
 // RollPositions 決定座位 (擲骰子)
 func RollPositions(ctx context.Context, gameID string) (*models.GameState, error) {
 	state, err := LoadGameState(ctx, gameID)

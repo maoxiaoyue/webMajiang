@@ -16,6 +16,9 @@ func setupRestRoutes(r *router.Router) {
 
 	// 認證路由
 	setupAuthRoutes(r)
+
+	// 內部 API (由 gamelobby 呼叫)
+	setupInternalRoutes(r)
 }
 
 // setupBaseRoutes 註冊基礎 API 路由
@@ -35,4 +38,9 @@ func setupAuthRoutes(r *router.Router) {
 	r.POST("/api/auth/register", controllers.RegisterHandler)
 	r.GET("/api/auth/verify", controllers.VerifyEmailHandler)
 	r.POST("/api/auth/login", controllers.LoginHandler)
+}
+
+// setupInternalRoutes 註冊內部 API 路由 (由 gamelobby 呼叫)
+func setupInternalRoutes(r *router.Router) {
+	r.POST("/api/internal/create-game", controllers.CreateGameFromLobbyHandler)
 }
