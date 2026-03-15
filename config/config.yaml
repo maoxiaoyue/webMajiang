@@ -1,6 +1,6 @@
 server:
-  addr: ":8080"
-  protocol: "auto" # 啟用 HTTP/3 + HTTP/2 (帶 fallback 到 HTTP/1.1)
+  addr: ":9090"
+  protocol: "http2" # HTTP/2 with HTTP/1.1 fallback (避免 HTTP/3 QUIC 失敗)
   tls:
     enabled: true
     cert_file: "cert.pem"
@@ -15,8 +15,8 @@ logger:
   color_enabled: true
 
 redis:
-  addr: "localhost:6379"
-  password: ""
+  addr: "192.168.50.202:6379"
+  password: "Mephisto80"
   db: 0
 
 smtp:

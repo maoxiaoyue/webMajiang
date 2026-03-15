@@ -41,24 +41,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 初始化 Logger
-	log, err := logger.New(
-		cfg.Logger.Level,
-		cfg.Logger.Output,
-		nil,
-		cfg.Logger.ColorEnabled,
-	)
-	if err != nil {
-		fmt.Printf("Failed to create logger: %v\n", err)
-		os.Exit(1)
-	}
+	// 初始化 Logger（用 NewLogger 避免 logger.New 的 nil logger bug）
+	log := logger.NewLogger()
 
-	// 初始化 Redis
+	// 初始化 Redis（連不上只警告，不阻擋啟動）
 	if err := service.InitRedis(appCfg.Redis); err != nil {
-		log.Fatal("Failed to connect to Redis: %v", err)
+		log.Warn("Redis not available, running without cache: %v", err)
+	} else {
+		defer service.CloseRedis()
+		log.Info("Redis connected at %s", appCfg.Redis.Addr)
 	}
-	defer service.CloseRedis()
-	log.Info("Redis connected at %s", appCfg.Redis.Addr)
 
 	// 初始化 Utils
 	utils.InitEmail(&appCfg.SMTP)
