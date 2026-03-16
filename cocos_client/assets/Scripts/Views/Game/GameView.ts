@@ -12,21 +12,19 @@ const { ccclass, property } = _decorator;
 @ccclass('GameView')
 export class GameView extends BaseView {
 
-    @property(Node)
+    // 中央資訊面板 (由 GameSceneSetup 程式碼綁定)
     public centerInfoPanel: Node = null!;
 
-    @property(Label)
+    // 剩餘牌數 Label
     public remainingTilesLabel: Label = null!;
 
-    @property(Label)
+    // 圈風 Label
     public currentWindLabel: Label = null!;
 
     // 玩家手牌容器 (0: 本機玩家, 1: 右邊, 2: 對面, 3: 左邊)
-    @property([Node])
     public playerHandNodes: Node[] = [];
 
     // 玩家棄牌區容器
-    @property([Node])
     public playerDiscardNodes: Node[] = [];
 
     private handTileRenderers: TileRenderer[] = [];
