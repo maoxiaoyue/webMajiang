@@ -764,13 +764,11 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 			}
 		}
 
-		// 讀取棄牌 (DiscardedTiles) — 從 GameState 裡讀取
-		if state.Players != nil {
-			player := state.Players[p]
-			if player.DiscardedTiles != nil {
-				for _, t := range player.DiscardedTiles {
-					pInfo.DiscardedTiles = append(pInfo.DiscardedTiles, int32(t.ID))
-				}
+		// 讀取棄牌 (DiscardedTiles) — 從 Redis 裡讀取
+		discards, err := GetPlayerDiscards(context.Background(), gameID, p)
+		if err == nil {
+			for _, t := range discards {
+				pInfo.DiscardedTiles = append(pInfo.DiscardedTiles, int32(t.ID))
 			}
 		}
 

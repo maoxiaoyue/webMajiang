@@ -226,6 +226,35 @@ func PlayerFlowersKey(gameID string, playerID int) string {
 	return fmt.Sprintf("game:%s:player%d:flowers", gameID, playerID)
 }
 
+// PlayerDiscardsKey 玩家棄牌在 Redis 中的 key 格式
+func PlayerDiscardsKey(gameID string, playerID int) string {
+	return fmt.Sprintf("game:%s:player%d:discards", gameID, playerID)
+}
+
+// AddPlayerDiscard 將一張牌加入玩家的棄牌列表
+func AddPlayerDiscard(ctx context.Context, gameID string, playerID int, tile models.Tile) error {
+	key := PlayerDiscardsKey(gameID, playerID)
+	data, _ := json.Marshal(tile)
+	return service.RedisClient.RPush(ctx, key, string(data)).Err()
+}
+
+// GetPlayerDiscards 讀取玩家的棄牌列表
+func GetPlayerDiscards(ctx context.Context, gameID string, playerID int) ([]models.Tile, error) {
+	key := PlayerDiscardsKey(gameID, playerID)
+	vals, err := service.RedisClient.LRange(ctx, key, 0, -1).Result()
+	if err != nil {
+		return nil, err
+	}
+	tiles := make([]models.Tile, 0, len(vals))
+	for _, v := range vals {
+		var t models.Tile
+		if err := json.Unmarshal([]byte(v), &t); err == nil {
+			tiles = append(tiles, t)
+		}
+	}
+	return tiles, nil
+}
+
 // DealTiles 發牌：從 Redis 牌堆 RPOP，按麻將規則輪流發給 4 位玩家
 // 發牌順序：
 //  1. 輪流摸 4 張 × 3 輪 = 每人 12 張

@@ -465,6 +465,9 @@ func DiscardTileAction(ctx context.Context, gameID string, playerID int, tile mo
 		return nil, fmt.Errorf("failed to discard tile: %w", err)
 	}
 
+	// 1.5 記錄棄牌到 Redis
+	_ = AddPlayerDiscard(ctx, gameID, playerID, tile)
+
 	// 2. 更新狀態機
 	state.LastDiscardTile = &tile
 	state.LastDiscardPlayerID = playerID
