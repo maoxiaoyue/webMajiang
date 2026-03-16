@@ -16,6 +16,10 @@ export interface PlayerData {
  */
 export class GameModel extends BaseModel {
 
+    // 自己的身份
+    public selfPlayerId: string = ""; // 自己的 player ID (與 server 同步)
+    public selfSeatIndex: number = -1; // 自己的絕對座位 (從 sync_state 取得)
+
     // 房間資訊
     public roomId: string = "";
     public currentWind: number = 0; // 圈風 (0: 東, 1: 南, 2: 西, 3: 北)

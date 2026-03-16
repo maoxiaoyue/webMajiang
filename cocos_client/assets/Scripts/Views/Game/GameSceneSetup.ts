@@ -101,8 +101,10 @@ export class GameSceneSetup extends Component {
         const selfHandView = handNodes[0].addComponent(HandView);
         selfHandView.isSelf = true;
 
-        // 8. 顯示 demo 手牌（測試用，連線後會被真實資料取代）
-        this.showDemoHand(selfHandView, handNodes);
+        // 8. 顯示 demo 手牌（僅無 LobbyBridge 時使用，有真實連線時由 sync_state 驅動）
+        if (!(window as any).__LOBBY_PARAMS__) {
+            this.showDemoHand(selfHandView, handNodes);
+        }
 
         console.log('[GameSceneSetup] 牌桌 UI 建構完成');
     }
@@ -359,8 +361,12 @@ export class GameSceneSetup extends Component {
             return;
         }
 
+        // 儲存自己的 playerId 到全域，供 GameViewModel 使用
+        const playerId = String(lobbyParams.seatId || '1');
+        (window as any).__SELF_PLAYER_ID__ = playerId;
+
         const wsUrl = lobbyParams.wsUrl || 'wss://lobby.cxwoo.com/game-ws';
-        console.log(`[GameSceneSetup] 自動連線 WebSocket: ${wsUrl}`);
+        console.log(`[GameSceneSetup] 自動連線 WebSocket: ${wsUrl}, playerId=${playerId}`);
 
         NetworkMgr.instance.connect(wsUrl);
 
@@ -368,9 +374,8 @@ export class GameSceneSetup extends Component {
         EventMgr.once(NetworkMgr.EVENT_CONNECTED, () => {
             console.log('[GameSceneSetup] WebSocket 已連線，發送 join_room');
             NetworkMgr.instance.send('join_room', {
-                gameId: lobbyParams.gameId,
-                token: lobbyParams.token,
-                seatId: lobbyParams.seatId,
+                room_id: lobbyParams.gameId || 'default_room',
+                player_id: playerId,
             });
         });
     }

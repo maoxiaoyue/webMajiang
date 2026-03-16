@@ -104,27 +104,27 @@ function _encodePlayerInfo(message: PlayerInfo, bb: ByteBuffer): void {
     writeVarint64(bb, intToLong($score));
   }
 
-  // repeated int32 hand_tiles = 5;
+  // repeated int32 hand_tiles = 11;
   let array$hand_tiles = message.hand_tiles;
   if (array$hand_tiles !== undefined) {
     let packed = popByteBuffer();
     for (let value of array$hand_tiles) {
       writeVarint64(packed, intToLong(value));
     }
-    writeVarint32(bb, 42);
+    writeVarint32(bb, 90);  // (11 << 3) | 2
     writeVarint32(bb, packed.offset);
     writeByteBuffer(bb, packed);
     pushByteBuffer(packed);
   }
 
-  // repeated int32 discarded_tiles = 6;
+  // repeated int32 discarded_tiles = 12;
   let array$discarded_tiles = message.discarded_tiles;
   if (array$discarded_tiles !== undefined) {
     let packed = popByteBuffer();
     for (let value of array$discarded_tiles) {
       writeVarint64(packed, intToLong(value));
     }
-    writeVarint32(bb, 50);
+    writeVarint32(bb, 98);  // (12 << 3) | 2
     writeVarint32(bb, packed.offset);
     writeByteBuffer(bb, packed);
     pushByteBuffer(packed);
@@ -182,8 +182,8 @@ function _decodePlayerInfo(bb: ByteBuffer): PlayerInfo {
         break;
       }
 
-      // repeated int32 hand_tiles = 5;
-      case 5: {
+      // repeated int32 hand_tiles = 11;
+      case 11: {
         let values = message.hand_tiles || (message.hand_tiles = []);
         if ((tag & 7) === 2) {
           let outerLimit = pushTemporaryLength(bb);
@@ -197,8 +197,8 @@ function _decodePlayerInfo(bb: ByteBuffer): PlayerInfo {
         break;
       }
 
-      // repeated int32 discarded_tiles = 6;
-      case 6: {
+      // repeated int32 discarded_tiles = 12;
+      case 12: {
         let values = message.discarded_tiles || (message.discarded_tiles = []);
         if ((tag & 7) === 2) {
           let outerLimit = pushTemporaryLength(bb);

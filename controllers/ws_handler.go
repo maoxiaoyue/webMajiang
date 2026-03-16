@@ -109,19 +109,91 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 	}
 
 	gameID := joinReq.RoomId
+	playerID := 1
+	if joinReq.PlayerId != "" {
+		fmt.Sscanf(joinReq.PlayerId, "%d", &playerID)
+	}
+
+	// 儲存 gameID 和 playerID 到 client metadata
+	client.SetMetadata("gameID", gameID)
+	client.SetMetadata("playerID", playerID)
 
 	go keepOnline(joinReq.PlayerId)
 
-	// 假設加入成功，回覆
+	// 回覆加入成功
 	res := &pb.JoinRoomRes{
 		Success: true,
 		Message: "加入成功",
 	}
 	sendProtoResponse(client, action+"_res", res)
 
-	// 順便發送一次全房狀態同步
+	// 載入遊戲狀態
 	state, err := LoadGameState(ctx, gameID)
-	if err == nil {
+	if err != nil {
+		sendWSError(client, action, "載入遊戲狀態失敗: "+err.Error())
+		return
+	}
+
+	// 自動啟動遊戲流程：WAITING_PLAYERS → 擲骰 → 決定莊家 → 發牌
+	if state.Stage == models.StageWaitingPlayers {
+		utils.Info("[WS] 自動啟動遊戲流程: %s", gameID)
+
+		// 1. 擲骰決定座位
+		state, err = RollPositions(ctx, gameID)
+		if err != nil {
+			utils.Error("[WS] RollPositions 失敗: %v", err)
+			syncData := buildSyncStateData(gameID, state)
+			sendProtoResponse(client, "sync_state", syncData)
+			return
+		}
+
+		// 2. 擲骰決定莊家
+		state, err = RollDealer(ctx, gameID)
+		if err != nil {
+			utils.Error("[WS] RollDealer 失敗: %v", err)
+			syncData := buildSyncStateData(gameID, state)
+			sendProtoResponse(client, "sync_state", syncData)
+			return
+		}
+
+		// 3. 發牌
+		state, err = DealTilesAction(ctx, gameID)
+		if err != nil {
+			utils.Error("[WS] DealTilesAction 失敗: %v", err)
+			syncData := buildSyncStateData(gameID, state)
+			sendProtoResponse(client, "sync_state", syncData)
+			return
+		}
+
+		// 發送玩家自己的手牌
+		hand, err := GetPlayerHand(ctx, gameID, playerID)
+		if err == nil {
+			tileIds := make([]int32, len(hand))
+			for i, t := range hand {
+				tileIds[i] = int32(t.ID)
+			}
+			sendProtoResponse(client, "deal_tiles", &pb.DealTilesData{Tiles: tileIds})
+		}
+
+		// 廣播最新狀態
+		syncData := buildSyncStateData(gameID, state)
+		sendProtoBroadcast(client.Hub, "sync_state", syncData)
+
+		// 如果莊家是 AI，自動觸發莊家出牌
+		dealer, ok := state.Players[state.CurrentPlayerID]
+		if ok && dealer.IsBot {
+			go func() {
+				if err := ProcessAITurn(context.Background(), gameID, dealer); err != nil {
+					utils.Error("[WS] AI 莊家自動出牌失敗: %v", err)
+				}
+				if newState, err := LoadGameState(context.Background(), gameID); err == nil {
+					syncData := buildSyncStateData(gameID, newState)
+					sendProtoBroadcast(client.Hub, "sync_state", syncData)
+				}
+			}()
+		}
+	} else {
+		// 遊戲已在進行中，只同步當前狀態
 		syncData := buildSyncStateData(gameID, state)
 		sendProtoResponse(client, "sync_state", syncData)
 	}
@@ -333,10 +405,9 @@ func handleDiscardTile(ctx context.Context, client *websocket.Client, action str
 		return
 	}
 
-	// 從 client session / request 取得 gameID 和 playerID
-	// TODO: 實務上應從 client session 中取得，目前仍需前端帶上
-	gameID := "default_room"
-	playerID := 1
+	// 從 client metadata 取得 gameID 和 playerID
+	gameID := getClientGameID(client)
+	playerID := getClientPlayerID(client)
 
 	tile := models.Tile{ID: int(actionReq.TileId)}
 	state, err := DiscardTileAction(ctx, gameID, playerID, tile)
@@ -378,9 +449,9 @@ func handlePlayerAction(ctx context.Context, client *websocket.Client, action st
 		return
 	}
 
-	// TODO: 從 client session 中取得 gameID 和 playerID
-	gameID := "default_room"
-	playerID := 1
+	// 從 client metadata 取得 gameID 和 playerID
+	gameID := getClientGameID(client)
+	playerID := getClientPlayerID(client)
 
 	var state *models.GameState
 	var err error
@@ -568,6 +639,26 @@ func handleGetDeckCount(ctx context.Context, client *websocket.Client, action st
 // 幫助函數
 // =====================================
 
+// 從 client metadata 取得 gameID
+func getClientGameID(client *websocket.Client) string {
+	if v, ok := client.GetMetadata("gameID"); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return "default_room"
+}
+
+// 從 client metadata 取得 playerID
+func getClientPlayerID(client *websocket.Client) int {
+	if v, ok := client.GetMetadata("playerID"); ok {
+		if id, ok := v.(int); ok {
+			return id
+		}
+	}
+	return 1
+}
+
 // 幫助函數：封裝並發送 Protobuf WSMessage 回到單一客戶端
 func sendProtoResponse(client *websocket.Client, action string, data proto.Message) {
 	b, err := proto.Marshal(data)
@@ -633,9 +724,13 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 		}
 	}
 
+	// 計算剩餘牌數
+	deckCount, _ := GetDeckCount(context.Background(), gameID)
+
 	syncData := &pb.SyncStateData{
 		RoomId:              gameID,
 		CurrentWind:         int32(state.Round.PrevailingWind),
+		RemainingTiles:      int32(deckCount),
 		CurrentTurnPlayerId: fmt.Sprintf("%d", state.CurrentPlayerID),
 		GameState:           gameStateStr,
 	}
@@ -652,7 +747,7 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 	// 將玩家資料逐一填入
 	for p := 1; p <= 4; p++ {
 		pInfo := &pb.PlayerInfo{
-			Id:   fmt.Sprintf("%d", p), // 這裡暫用 सीट對應 ID (1-4)
+			Id:   fmt.Sprintf("%d", p),
 			Name: fmt.Sprintf("Player %d", p),
 			Seat: int32(p),
 		}
@@ -661,7 +756,23 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 			pInfo.Name = state.Players[p].Name
 		}
 
-		// (若需要，這裡可以加上棄牌或手牌數量等)
+		// 讀取手牌 (HandTiles)
+		hand, err := GetPlayerHand(context.Background(), gameID, p)
+		if err == nil {
+			for _, t := range hand {
+				pInfo.HandTiles = append(pInfo.HandTiles, int32(t.ID))
+			}
+		}
+
+		// 讀取棄牌 (DiscardedTiles) — 從 GameState 裡讀取
+		if state.Players != nil {
+			player := state.Players[p]
+			if player.DiscardedTiles != nil {
+				for _, t := range player.DiscardedTiles {
+					pInfo.DiscardedTiles = append(pInfo.DiscardedTiles, int32(t.ID))
+				}
+			}
+		}
 
 		// 讀取副露 (Melds)
 		meldsKey := PlayerMeldsKey(gameID, p)

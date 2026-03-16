@@ -27,6 +27,10 @@ message PlayerInfo {
     // 結算專用
     int32 total_tai = 9;
     map<string, int32> patterns = 10;
+
+    // 手牌與棄牌
+    repeated int32 hand_tiles = 11;      // 手牌 ID 列表
+    repeated int32 discarded_tiles = 12; // 棄牌 ID 列表
 }
 
 message MeldData {
