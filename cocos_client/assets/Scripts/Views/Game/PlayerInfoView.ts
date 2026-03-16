@@ -36,21 +36,21 @@ export class PlayerInfoView extends Component {
         this._seatIndex = seatIndex;
         this._isSelf = isSelf;
 
-        // 門風標籤 (左上角圓形徽章)
+        // 門風標籤 (小圓形徽章)
         const windBadge = uiNode('WindBadge');
         const windBadgeT = windBadge.addComponent(UITransform);
-        windBadgeT.setContentSize(new Size(28, 28));
-        windBadge.setPosition(-48, 18, 0);
+        windBadgeT.setContentSize(new Size(18, 18));
+        windBadge.setPosition(-36, 0, 0);
 
         const windG = windBadge.addComponent(Graphics);
         windG.fillColor = this.getWindColor(seatWind);
-        windG.circle(0, 0, 14);
+        windG.circle(0, 0, 9);
         windG.fill();
 
         const windLabelNode = uiNode('WindText');
         this._seatWindLabel = windLabelNode.addComponent(Label);
         this._seatWindLabel.string = seatWind;
-        this._seatWindLabel.fontSize = 16;
+        this._seatWindLabel.fontSize = 11;
         this._seatWindLabel.color = Color.WHITE;
         this._seatWindLabel.isBold = true;
         windBadge.addChild(windLabelNode);
@@ -61,31 +61,31 @@ export class PlayerInfoView extends Component {
         const nameNode = uiNode('NameLabel');
         this._nameLabel = nameNode.addComponent(Label);
         this._nameLabel.string = isSelf ? '我' : `玩家${seatIndex + 1}`;
-        this._nameLabel.fontSize = 18;
+        this._nameLabel.fontSize = 12;
         this._nameLabel.color = isSelf ? new Color(255, 220, 100, 255) : Color.WHITE;
         this._nameLabel.isBold = isSelf;
-        nameNode.setPosition(12, 18, 0);
+        nameNode.setPosition(-8, 8, 0);
         this.node.addChild(nameNode);
 
         // 分數
         const scoreNode = uiNode('ScoreLabel');
         this._scoreLabel = scoreNode.addComponent(Label);
         this._scoreLabel.string = '0 分';
-        this._scoreLabel.fontSize = 20;
+        this._scoreLabel.fontSize = 12;
         this._scoreLabel.color = new Color(100, 255, 100, 255);
         this._scoreLabel.isBold = true;
-        scoreNode.setPosition(0, -12, 0);
+        scoreNode.setPosition(-8, -8, 0);
         this.node.addChild(scoreNode);
 
         // 狀態指示燈 (小圓點)
         this._statusIndicator = uiNode('StatusDot');
         const dotT = this._statusIndicator.addComponent(UITransform);
-        dotT.setContentSize(new Size(10, 10));
+        dotT.setContentSize(new Size(6, 6));
         const dotG = this._statusIndicator.addComponent(Graphics);
         dotG.fillColor = new Color(100, 100, 100, 200);
-        dotG.circle(0, 0, 5);
+        dotG.circle(0, 0, 3);
         dotG.fill();
-        this._statusIndicator.setPosition(55, 18, 0);
+        this._statusIndicator.setPosition(40, 8, 0);
         this.node.addChild(this._statusIndicator);
 
         // 監聽遊戲狀態變更

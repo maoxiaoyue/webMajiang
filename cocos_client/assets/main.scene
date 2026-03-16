@@ -272,6 +272,9 @@
       },
       {
         "__id__": 15
+      },
+      {
+        "__id__": 25
       }
     ],
     "_prefab": null,
@@ -722,5 +725,17 @@
   {
     "__type__": "cc.PostSettingsInfo",
     "_toneMappingType": 0
+  },
+  {
+    "__type__": "e5c3dT2eotMnQ4fKjtMXW5/",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 7
+    },
+    "_enabled": true,
+    "__prefab": null,
+    "_id": "a1b2c3d4e5GameBootComp"
   }
 ]

@@ -18,14 +18,14 @@
   },
   "BuildTaskManager": {
     "taskMap": {
-      "1773674706759": {
+      "1773678850854": {
         "type": "build",
-        "id": "1773674706759",
+        "id": "1773678850854",
         "progress": 1,
         "state": "success",
         "stage": "build",
-        "message": "2026-3-16 23:25:18 build success in 11 s!",
-        "detailMessage": "// ---- build task cocos-service：onAfterCompressSettings ----\r",
+        "message": "2026-3-17 00:34:20 build success in 9 s!",
+        "detailMessage": "// ---- build task cocos-service：onBeforeCompressSettings ----\r",
         "options": {
           "name": "mjgame",
           "server": "",
@@ -84,9 +84,9 @@
           },
           "packages": {},
           "__version__": "1.3.9",
-          "logDest": "project://temp/builder/log/web-mobile2026-3-16 23-25.log"
+          "logDest": "project://temp/builder/log/web-mobile2026-3-17 00-34.log"
         },
-        "time": "2026-3-16 23:25:06",
+        "time": "2026-3-17 00:34:10",
         "dirty": false
       }
     }

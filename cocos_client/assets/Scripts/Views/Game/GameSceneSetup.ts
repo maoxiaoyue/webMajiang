@@ -19,6 +19,9 @@ const UI_2D = Layers.Enum.UI_2D;
 const DESIGN_WIDTH = 1280;
 const DESIGN_HEIGHT = 720;
 
+/** 邊緣留白 */
+const MARGIN = 30;
+
 /** 牌桌顏色 */
 const TABLE_BG_COLOR = new Color(7, 82, 45, 255);        // 深綠色桌面
 const TABLE_BORDER_COLOR = new Color(90, 60, 30, 255);    // 木質邊框
@@ -97,6 +100,9 @@ export class GameSceneSetup extends Component {
         // 7. 為自己的手牌區掛 HandView
         const selfHandView = handNodes[0].addComponent(HandView);
         selfHandView.isSelf = true;
+
+        // 8. 顯示 demo 手牌（測試用，連線後會被真實資料取代）
+        this.showDemoHand(selfHandView, handNodes);
 
         console.log('[GameSceneSetup] 牌桌 UI 建構完成');
     }
@@ -220,10 +226,10 @@ export class GameSceneSetup extends Component {
     private createDiscardAreas(parent: Node): Node[] {
         const areas: Node[] = [];
         const discardConfigs = [
-            { x: 0, y: -100, w: 400, h: 120 },    // 0: 自己 (下方)
-            { x: 260, y: 0, w: 120, h: 300 },      // 1: 右方
-            { x: 0, y: 100, w: 400, h: 120 },      // 2: 對面 (上方)
-            { x: -260, y: 0, w: 120, h: 300 },     // 3: 左方
+            { x: 0, y: -110, w: 350, h: 90 },     // 0: 自己 (下方)
+            { x: 200, y: 0, w: 90, h: 250 },      // 1: 右方
+            { x: 0, y: 110, w: 350, h: 90 },      // 2: 對面 (上方)
+            { x: -200, y: 0, w: 90, h: 250 },     // 3: 左方
         ];
 
         for (let i = 0; i < 4; i++) {
@@ -251,11 +257,13 @@ export class GameSceneSetup extends Component {
 
     private createHandAreas(parent: Node): Node[] {
         const areas: Node[] = [];
+        // 手牌區: 下(自己)、右(下家)、上(對家)、左(上家)
+        // 右方和左方的手牌容器要旋轉 90°，牌變成直的
         const handConfigs = [
-            { x: 0, y: -290, w: 1100, h: 110 },    // 0: 自己 (下方)
-            { x: 520, y: 30, w: 60, h: 500 },       // 1: 右方
-            { x: 0, y: 290, w: 900, h: 70 },        // 2: 對面 (上方)
-            { x: -520, y: 30, w: 60, h: 500 },      // 3: 左方
+            { x: 0, y: -210, w: 700, h: 60, rot: 0 },      // 0: 自己 (下方，橫排)
+            { x: 420, y: 0, w: 550, h: 50, rot: 90 },      // 1: 右方 (旋轉90°，直排)
+            { x: 0, y: 210, w: 550, h: 50, rot: 180 },     // 2: 對面 (上方，反轉)
+            { x: -420, y: 0, w: 550, h: 50, rot: -90 },    // 3: 左方 (旋轉-90°，直排)
         ];
 
         for (let i = 0; i < 4; i++) {
@@ -264,6 +272,11 @@ export class GameSceneSetup extends Component {
             const transform = node.addComponent(UITransform);
             transform.setContentSize(new Size(cfg.w, cfg.h));
             node.setPosition(cfg.x, cfg.y, 0);
+
+            // 旋轉手牌容器
+            if (cfg.rot !== 0) {
+                node.setRotationFromEuler(0, 0, cfg.rot);
+            }
 
             parent.addChild(node);
             areas.push(node);
@@ -278,28 +291,29 @@ export class GameSceneSetup extends Component {
     private createPlayerInfoPanels(parent: Node): Node[] {
         const panels: Node[] = [];
         const infoConfigs = [
-            { x: 480, y: -290, seat: '東' },     // 0: 自己 (右下角)
-            { x: 520, y: 280, seat: '南' },      // 1: 右方 (右上角)
-            { x: -480, y: 290, seat: '西' },     // 2: 對面 (左上角)
-            { x: -520, y: -280, seat: '北' },    // 3: 左方 (左下角)
+            { x: 400, y: -250, seat: '東' },     // 0: 自己 (右下角)
+            { x: 520, y: 180, seat: '南' },      // 1: 右方 (右側)
+            { x: -400, y: 255, seat: '西' },     // 2: 對面 (左上角)
+            { x: -520, y: -180, seat: '北' },    // 3: 左方 (左側)
         ];
 
+        const PW = 100, PH = 36;
         for (let i = 0; i < 4; i++) {
             const cfg = infoConfigs[i];
             const node = uiNode(`PlayerInfo_${i}`);
             const transform = node.addComponent(UITransform);
-            transform.setContentSize(new Size(140, 80));
+            transform.setContentSize(new Size(PW, PH));
             node.setPosition(cfg.x, cfg.y, 0);
 
             // 背景
             const g = node.addComponent(Graphics);
             g.fillColor = new Color(0, 0, 0, 120);
-            g.roundRect(-70, -40, 140, 80, 8);
+            g.roundRect(-PW / 2, -PH / 2, PW, PH, 6);
             g.fill();
             if (i === 0) {
                 g.strokeColor = new Color(200, 170, 80, 200);
-                g.lineWidth = 2;
-                g.roundRect(-70, -40, 140, 80, 8);
+                g.lineWidth = 1;
+                g.roundRect(-PW / 2, -PH / 2, PW, PH, 6);
                 g.stroke();
             }
 
@@ -311,6 +325,27 @@ export class GameSceneSetup extends Component {
             panels.push(node);
         }
         return panels;
+    }
+
+    // ================================================================
+    // Demo 手牌（測試渲染）
+    // ================================================================
+
+    private showDemoHand(selfHandView: HandView, handNodes: Node[]): void {
+        // 自己的手牌：16 張示範牌
+        // ID: 1=一萬, 5=二萬, 9=三萬, 13=四萬, 17=五萬, 21=六萬, 25=七萬, 29=八萬, 33=九萬
+        //     37=一筒, 41=二筒, 45=三筒, 49=四筒, 109=東, 113=南, 117=西
+        const demoTiles = [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 109, 113, 117];
+        selfHandView.sortAndRedraw(demoTiles);
+
+        // 對手手牌：顯示牌背（對手容器已旋轉，牌會自動跟著轉）
+        for (let i = 1; i <= 3; i++) {
+            const handView = handNodes[i].addComponent(HandView);
+            handView.isSelf = false;
+            // 對手牌稍小
+            handNodes[i].setScale(0.6, 0.6, 1);
+            handView.setOpponentCount(13);
+        }
     }
 
     // ================================================================

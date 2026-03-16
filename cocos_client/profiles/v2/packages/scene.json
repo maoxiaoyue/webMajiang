@@ -25,7 +25,7 @@
       166,
       255
     ],
-    "transformToolName": "rotation",
+    "transformToolName": "position",
     "pivot": "pivot",
     "coordinate": "local",
     "toolsVisibility3d": true

@@ -13,7 +13,7 @@ function uiNode(name: string): Node {
 }
 
 /** 手牌槽間距 (px) */
-const TILE_SPACING = 64;
+const TILE_SPACING = 40;
 /** 發牌逐張延遲 (秒) */
 const DEAL_DELAY_SEC = 0.12;
 /** 發牌飛入動畫時長 (秒) */
