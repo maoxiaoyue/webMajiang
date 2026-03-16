@@ -1,4 +1,7 @@
 {
+  "name": "mjgame",
+  "version": "1.0.0",
+  "description": "麻將遊戲 - Cocos Creator 前端",
   "dependencies": {
     "protobufjs": "^8.0.0"
   },

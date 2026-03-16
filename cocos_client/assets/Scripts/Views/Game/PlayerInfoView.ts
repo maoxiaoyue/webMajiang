@@ -1,7 +1,16 @@
-import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Size } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, Graphics, Size, Layers } from 'cc';
 import { EventMgr } from '../../Events/EventMgr';
 
 const { ccclass, property } = _decorator;
+
+const UI_2D = Layers.Enum.UI_2D;
+
+/** 建立 UI_2D layer 的節點 */
+function uiNode(name: string): Node {
+    const n = new Node(name);
+    n.layer = UI_2D;
+    return n;
+}
 
 /**
  * PlayerInfoView: 顯示單位玩家的資訊
@@ -22,16 +31,13 @@ export class PlayerInfoView extends Component {
 
     /**
      * 初始化玩家資訊 UI
-     * @param seatIndex 座位 (0=自己, 1=右, 2=對面, 3=左)
-     * @param seatWind 門風文字 (東/南/西/北)
-     * @param isSelf 是否為本機玩家
      */
     public initUI(seatIndex: number, seatWind: string, isSelf: boolean): void {
         this._seatIndex = seatIndex;
         this._isSelf = isSelf;
 
         // 門風標籤 (左上角圓形徽章)
-        const windBadge = new Node('WindBadge');
+        const windBadge = uiNode('WindBadge');
         const windBadgeT = windBadge.addComponent(UITransform);
         windBadgeT.setContentSize(new Size(28, 28));
         windBadge.setPosition(-48, 18, 0);
@@ -41,7 +47,7 @@ export class PlayerInfoView extends Component {
         windG.circle(0, 0, 14);
         windG.fill();
 
-        const windLabelNode = new Node('WindText');
+        const windLabelNode = uiNode('WindText');
         this._seatWindLabel = windLabelNode.addComponent(Label);
         this._seatWindLabel.string = seatWind;
         this._seatWindLabel.fontSize = 16;
@@ -52,7 +58,7 @@ export class PlayerInfoView extends Component {
         this.node.addChild(windBadge);
 
         // 玩家名稱
-        const nameNode = new Node('NameLabel');
+        const nameNode = uiNode('NameLabel');
         this._nameLabel = nameNode.addComponent(Label);
         this._nameLabel.string = isSelf ? '我' : `玩家${seatIndex + 1}`;
         this._nameLabel.fontSize = 18;
@@ -62,7 +68,7 @@ export class PlayerInfoView extends Component {
         this.node.addChild(nameNode);
 
         // 分數
-        const scoreNode = new Node('ScoreLabel');
+        const scoreNode = uiNode('ScoreLabel');
         this._scoreLabel = scoreNode.addComponent(Label);
         this._scoreLabel.string = '0 分';
         this._scoreLabel.fontSize = 20;
@@ -72,11 +78,11 @@ export class PlayerInfoView extends Component {
         this.node.addChild(scoreNode);
 
         // 狀態指示燈 (小圓點)
-        this._statusIndicator = new Node('StatusDot');
+        this._statusIndicator = uiNode('StatusDot');
         const dotT = this._statusIndicator.addComponent(UITransform);
         dotT.setContentSize(new Size(10, 10));
         const dotG = this._statusIndicator.addComponent(Graphics);
-        dotG.fillColor = new Color(100, 100, 100, 200); // 灰色=等待中
+        dotG.fillColor = new Color(100, 100, 100, 200);
         dotG.circle(0, 0, 5);
         dotG.fill();
         this._statusIndicator.setPosition(55, 18, 0);
@@ -90,16 +96,12 @@ export class PlayerInfoView extends Component {
         EventMgr.off('game_state_changed', this.onGameStateChanged, this);
     }
 
-    /**
-     * 更新玩家資訊
-     */
     public updateInfo(name: string, score: number, isCurrentTurn: boolean): void {
         if (this._nameLabel && name) {
             this._nameLabel.string = name;
         }
         if (this._scoreLabel) {
             this._scoreLabel.string = `${score} 分`;
-            // 正分綠色，負分紅色
             this._scoreLabel.color = score >= 0
                 ? new Color(100, 255, 100, 255)
                 : new Color(255, 100, 100, 255);
@@ -107,30 +109,23 @@ export class PlayerInfoView extends Component {
         this.setTurnIndicator(isCurrentTurn);
     }
 
-    /**
-     * 設定當前出牌指示
-     */
     public setTurnIndicator(isCurrentTurn: boolean): void {
         if (!this._statusIndicator) return;
-
         const dotG = this._statusIndicator.getComponent(Graphics);
         if (!dotG) return;
 
         dotG.clear();
         if (isCurrentTurn) {
-            dotG.fillColor = new Color(50, 255, 50, 255); // 綠色 = 輪到此玩家
+            dotG.fillColor = new Color(50, 255, 50, 255);
             dotG.circle(0, 0, 6);
             dotG.fill();
         } else {
-            dotG.fillColor = new Color(100, 100, 100, 200); // 灰色 = 等待
+            dotG.fillColor = new Color(100, 100, 100, 200);
             dotG.circle(0, 0, 5);
             dotG.fill();
         }
     }
 
-    /**
-     * 更新門風
-     */
     public updateSeatWind(wind: string): void {
         if (this._seatWindLabel) {
             this._seatWindLabel.string = wind;
@@ -139,7 +134,6 @@ export class PlayerInfoView extends Component {
 
     private onGameStateChanged(modelInfo: any): void {
         if (!modelInfo || !modelInfo.players) return;
-
         const player = modelInfo.players.find((p: any) => p.seat === this._seatIndex);
         if (player) {
             const isCurrentTurn = modelInfo.currentTurnPlayerId === player.id;
@@ -149,11 +143,11 @@ export class PlayerInfoView extends Component {
 
     private getWindColor(wind: string): Color {
         switch (wind) {
-            case '東': return new Color(200, 50, 50, 255);   // 紅
-            case '南': return new Color(50, 150, 50, 255);   // 綠
-            case '西': return new Color(50, 100, 200, 255);  // 藍
-            case '北': return new Color(150, 100, 200, 255); // 紫
-            default:   return new Color(150, 150, 150, 255); // 灰
+            case '東': return new Color(200, 50, 50, 255);
+            case '南': return new Color(50, 150, 50, 255);
+            case '西': return new Color(50, 100, 200, 255);
+            case '北': return new Color(150, 100, 200, 255);
+            default:   return new Color(150, 150, 150, 255);
         }
     }
 }

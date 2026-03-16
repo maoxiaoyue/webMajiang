@@ -1,7 +1,16 @@
-import { _decorator, Component, Node, Sprite, Label, Color, UITransform, SpriteFrame, resources, ImageAsset, Texture2D, Size, Graphics } from 'cc';
+import { _decorator, Component, Node, Sprite, Label, Color, UITransform, SpriteFrame, resources, ImageAsset, Texture2D, Size, Graphics, Layers } from 'cc';
 import { TileInfo, parseTileId, getTileImagePath, getTileTextDisplay, getTileName } from './TileConfig';
 
 const { ccclass, property } = _decorator;
+
+const UI_2D = Layers.Enum.UI_2D;
+
+/** 建立 UI_2D layer 的節點 */
+function uiNode(name: string): Node {
+    const n = new Node(name);
+    n.layer = UI_2D;
+    return n;
+}
 
 /** 牌面尺寸常數（對應 .pen 設計: 60x84） */
 const TILE_WIDTH = 60;
@@ -66,6 +75,8 @@ export class TileRenderer extends Component {
     }
 
     private rebuild() {
+        // 確保自身節點在 UI_2D layer
+        this.node.layer = UI_2D;
         this.node.removeAllChildren();
 
         const isFaceUp = this._displayMode === TileDisplayMode.FaceUp
@@ -119,7 +130,7 @@ export class TileRenderer extends Component {
     // 正面
     // ============================================
     private buildFace(x: number, y: number) {
-        const faceNode = new Node("face");
+        const faceNode = uiNode("face");
         const ft = faceNode.addComponent(UITransform);
         ft.setContentSize(new Size(TILE_WIDTH, TILE_HEIGHT));
         faceNode.setPosition(x, y, 0);
@@ -138,7 +149,7 @@ export class TileRenderer extends Component {
             if (imgPath) {
                 this.loadTileImage(faceNode, imgPath);
             } else {
-                // fallback 文字 (理論上不會走到這裡)
+                // fallback 文字
                 const display = getTileTextDisplay(this._tileInfo);
                 if (display) this.buildTextContent(faceNode, display);
             }
@@ -149,7 +160,7 @@ export class TileRenderer extends Component {
     // 背面
     // ============================================
     private buildBack(x: number, y: number) {
-        const backNode = new Node("back");
+        const backNode = uiNode("back");
         const bt = backNode.addComponent(UITransform);
         bt.setContentSize(new Size(TILE_WIDTH, TILE_HEIGHT));
         backNode.setPosition(x, y, 0);
@@ -170,23 +181,21 @@ export class TileRenderer extends Component {
     // 上側面
     // ============================================
     private buildSideTop(x: number, y: number, isBack: boolean) {
-        const sideNode = new Node("sideTop");
+        const sideNode = uiNode("sideTop");
         const st = sideNode.addComponent(UITransform);
         st.setContentSize(new Size(TILE_WIDTH, SIDE_TOP_HEIGHT));
         sideNode.setPosition(x, y, 0);
 
         if (isBack) {
-            // 背面上側：深綠色 + 金邊
             this.drawTileBackground(sideNode, TILE_WIDTH, SIDE_TOP_HEIGHT,
                 new Color(30, 77, 30, 255),
                 new Color(255, 215, 0, 255),
                 [4, 4, 0, 0]
             );
         } else {
-            // 正面上側：米色漸層效果
             this.drawTileBackground(sideNode, TILE_WIDTH, SIDE_TOP_HEIGHT,
-                new Color(232, 223, 200, 255), // #E8DFC8
-                new Color(196, 184, 152, 255), // #C4B898
+                new Color(232, 223, 200, 255),
+                new Color(196, 184, 152, 255),
                 [4, 4, 0, 0]
             );
         }
@@ -198,7 +207,7 @@ export class TileRenderer extends Component {
     // 右側面
     // ============================================
     private buildSideRight(x: number, y: number) {
-        const sideNode = new Node("sideRight");
+        const sideNode = uiNode("sideRight");
         const st = sideNode.addComponent(UITransform);
         st.setContentSize(new Size(SIDE_RIGHT_WIDTH, TILE_HEIGHT));
         sideNode.setPosition(x, y, 0);
@@ -224,7 +233,7 @@ export class TileRenderer extends Component {
     ) {
         const g = node.addComponent(Graphics);
         const hw = w / 2, hh = h / 2;
-        const r = radius[0]; // 簡化：四角統一使用第一個值
+        const r = radius[0];
         g.fillColor = fillColor;
         g.strokeColor = strokeColor;
         g.lineWidth = 1;
@@ -235,7 +244,7 @@ export class TileRenderer extends Component {
 
     /** 動態載入圖片到指定節點 */
     private loadTileImage(parentNode: Node, imgPath: string) {
-        const contentNode = new Node("imgContent");
+        const contentNode = uiNode("imgContent");
         const ct = contentNode.addComponent(UITransform);
         ct.setContentSize(new Size(CONTENT_WIDTH, CONTENT_HEIGHT));
         const sprite = contentNode.addComponent(Sprite);
@@ -265,7 +274,7 @@ export class TileRenderer extends Component {
 
     /** 文字 fallback (備用) */
     private buildTextContent(parentNode: Node, display: { topText: string; topColor: string; topSize: number; bottomText?: string; bottomColor?: string; bottomSize?: number }) {
-        const topNode = new Node("topText");
+        const topNode = uiNode("topText");
         const topLabel = topNode.addComponent(Label);
         topLabel.string = display.topText;
         topLabel.fontSize = display.topSize;
@@ -274,7 +283,7 @@ export class TileRenderer extends Component {
         parentNode.addChild(topNode);
 
         if (display.bottomText) {
-            const bottomNode = new Node("bottomText");
+            const bottomNode = uiNode("bottomText");
             const bottomLabel = bottomNode.addComponent(Label);
             bottomLabel.string = display.bottomText;
             bottomLabel.fontSize = display.bottomSize || 16;
@@ -301,7 +310,7 @@ export class TileRenderer extends Component {
 
     /** 建立正面朝上的牌節點 */
     public static createTileNode(tileId: number, mode: TileDisplayMode = TileDisplayMode.FaceUp): Node {
-        const node = new Node(`tile_${tileId}`);
+        const node = uiNode(`tile_${tileId}`);
         const renderer = node.addComponent(TileRenderer);
         renderer.setTile(tileId, mode);
         return node;

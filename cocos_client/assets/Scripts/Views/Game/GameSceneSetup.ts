@@ -1,7 +1,7 @@
 import {
     _decorator, Component, Node, Canvas, Camera, UITransform, Widget,
     Label, Graphics, Color, Size, Vec3, view, Sprite, SpriteFrame,
-    director, game, Game, Layout
+    director, game, Game, Layout, Layers
 } from 'cc';
 import { GameView } from './GameView';
 import { HandView } from './HandView';
@@ -12,6 +12,9 @@ import { EventMgr } from '../../Events/EventMgr';
 
 const { ccclass, property } = _decorator;
 
+/** UI_2D 圖層 (1 << 25)，必須與 Camera.visibility 一致才能被渲染 */
+const UI_2D = Layers.Enum.UI_2D;
+
 /** 設計解析度 */
 const DESIGN_WIDTH = 1280;
 const DESIGN_HEIGHT = 720;
@@ -19,15 +22,15 @@ const DESIGN_HEIGHT = 720;
 /** 牌桌顏色 */
 const TABLE_BG_COLOR = new Color(7, 82, 45, 255);        // 深綠色桌面
 const TABLE_BORDER_COLOR = new Color(90, 60, 30, 255);    // 木質邊框
-const TABLE_CENTER_COLOR = new Color(10, 95, 52, 255);    // 中心區域稍亮
 
-/** 玩家區域配置 (0=自己/下方, 1=右方, 2=對面/上方, 3=左方) */
-const PLAYER_CONFIGS = [
-    { name: '自己', handY: -280, discardY: -120, infoX: 500, infoY: -300, rotation: 0 },
-    { name: '右家', handY: 0, discardY: 0, infoX: 540, infoY: 200, rotation: 0 },
-    { name: '對家', handY: 280, discardY: 120, infoX: -500, infoY: 300, rotation: 0 },
-    { name: '左家', handY: 0, discardY: 0, infoX: -540, infoY: -200, rotation: 0 },
-];
+/**
+ * 建立一個已設定好 UI_2D layer 的節點
+ */
+function uiNode(name: string): Node {
+    const n = new Node(name);
+    n.layer = UI_2D;
+    return n;
+}
 
 /**
  * GameSceneSetup: 遊戲場景啟動器
@@ -46,6 +49,8 @@ export class GameSceneSetup extends Component {
     private _gameView: GameView | null = null;
 
     protected onLoad(): void {
+        // 確保自身節點也在 UI_2D layer
+        this.node.layer = UI_2D;
         ErrorReporter.init();
         this.buildGameTable();
         this.connectToServer();
@@ -101,7 +106,7 @@ export class GameSceneSetup extends Component {
     // ================================================================
 
     private createTableBackground(parent: Node): Node {
-        const bgNode = new Node('TableBackground');
+        const bgNode = uiNode('TableBackground');
         const transform = bgNode.addComponent(UITransform);
         transform.setContentSize(new Size(DESIGN_WIDTH, DESIGN_HEIGHT));
 
@@ -112,7 +117,7 @@ export class GameSceneSetup extends Component {
         outerG.fill();
 
         // 內層桌面 (深綠)
-        const innerNode = new Node('TableInner');
+        const innerNode = uiNode('TableInner');
         const innerT = innerNode.addComponent(UITransform);
         const innerW = DESIGN_WIDTH - 20;
         const innerH = DESIGN_HEIGHT - 20;
@@ -121,7 +126,7 @@ export class GameSceneSetup extends Component {
         innerG.fillColor = TABLE_BG_COLOR;
         innerG.roundRect(-innerW / 2, -innerH / 2, innerW, innerH, 12);
         innerG.fill();
-        // 中心裝飾線 (菱形框) - 同一 Graphics 繪製
+        // 中心裝飾線 (菱形框)
         innerG.strokeColor = new Color(255, 255, 255, 30);
         innerG.lineWidth = 2;
         const dSize = 200;
@@ -134,7 +139,7 @@ export class GameSceneSetup extends Component {
 
         bgNode.addChild(innerNode);
         parent.addChild(bgNode);
-        bgNode.setSiblingIndex(0); // 確保在最底層
+        bgNode.setSiblingIndex(0);
         return bgNode;
     }
 
@@ -143,12 +148,12 @@ export class GameSceneSetup extends Component {
     // ================================================================
 
     private createCenterInfoPanel(parent: Node): Node {
-        const panel = new Node('CenterInfoPanel');
+        const panel = uiNode('CenterInfoPanel');
         const pTransform = panel.addComponent(UITransform);
         pTransform.setContentSize(new Size(160, 160));
 
-        // 背景子節點 (半透明深色圓角矩形 + 金色邊框 + 分隔線)
-        const bgNode = new Node('CenterBg');
+        // 背景子節點
+        const bgNode = uiNode('CenterBg');
         const bgT = bgNode.addComponent(UITransform);
         bgT.setContentSize(new Size(160, 160));
         const g = bgNode.addComponent(Graphics);
@@ -168,7 +173,7 @@ export class GameSceneSetup extends Component {
         panel.addChild(bgNode);
 
         // 圈風標題
-        const windTitleNode = new Node('WindTitle');
+        const windTitleNode = uiNode('WindTitle');
         const windTitleLabel = windTitleNode.addComponent(Label);
         windTitleLabel.string = '圈風';
         windTitleLabel.fontSize = 16;
@@ -177,7 +182,7 @@ export class GameSceneSetup extends Component {
         panel.addChild(windTitleNode);
 
         // 圈風值 (大字)
-        const windNode = new Node('WindLabel');
+        const windNode = uiNode('WindLabel');
         const windLabel = windNode.addComponent(Label);
         windLabel.string = '東';
         windLabel.fontSize = 42;
@@ -187,7 +192,7 @@ export class GameSceneSetup extends Component {
         panel.addChild(windNode);
 
         // 剩餘牌數
-        const remainNode = new Node('RemainLabel');
+        const remainNode = uiNode('RemainLabel');
         const remainLabel = remainNode.addComponent(Label);
         remainLabel.string = '剩餘: 144';
         remainLabel.fontSize = 18;
@@ -196,7 +201,7 @@ export class GameSceneSetup extends Component {
         panel.addChild(remainNode);
 
         // 局數提示
-        const roundNode = new Node('RoundLabel');
+        const roundNode = uiNode('RoundLabel');
         const roundLabel = roundNode.addComponent(Label);
         roundLabel.string = '第 1 局';
         roundLabel.fontSize = 14;
@@ -214,17 +219,16 @@ export class GameSceneSetup extends Component {
 
     private createDiscardAreas(parent: Node): Node[] {
         const areas: Node[] = [];
-        // 棄牌區圍繞中央，形成一個方形區域
         const discardConfigs = [
             { x: 0, y: -100, w: 400, h: 120 },    // 0: 自己 (下方)
             { x: 260, y: 0, w: 120, h: 300 },      // 1: 右方
-            { x: 0, y: 100, w: 400, h: 120 },       // 2: 對面 (上方)
+            { x: 0, y: 100, w: 400, h: 120 },      // 2: 對面 (上方)
             { x: -260, y: 0, w: 120, h: 300 },     // 3: 左方
         ];
 
         for (let i = 0; i < 4; i++) {
             const cfg = discardConfigs[i];
-            const node = new Node(`DiscardArea_${i}`);
+            const node = uiNode(`DiscardArea_${i}`);
             const transform = node.addComponent(UITransform);
             transform.setContentSize(new Size(cfg.w, cfg.h));
             node.setPosition(cfg.x, cfg.y, 0);
@@ -247,18 +251,16 @@ export class GameSceneSetup extends Component {
 
     private createHandAreas(parent: Node): Node[] {
         const areas: Node[] = [];
-
-        // 手牌容器位置
         const handConfigs = [
-            { x: 0, y: -290, w: 1100, h: 110 },    // 0: 自己 (下方，最大)
-            { x: 520, y: 30, w: 60, h: 500 },       // 1: 右方 (直排)
-            { x: 0, y: 290, w: 900, h: 70 },        // 2: 對面 (上方，稍小)
-            { x: -520, y: 30, w: 60, h: 500 },      // 3: 左方 (直排)
+            { x: 0, y: -290, w: 1100, h: 110 },    // 0: 自己 (下方)
+            { x: 520, y: 30, w: 60, h: 500 },       // 1: 右方
+            { x: 0, y: 290, w: 900, h: 70 },        // 2: 對面 (上方)
+            { x: -520, y: 30, w: 60, h: 500 },      // 3: 左方
         ];
 
         for (let i = 0; i < 4; i++) {
             const cfg = handConfigs[i];
-            const node = new Node(`HandArea_${i}`);
+            const node = uiNode(`HandArea_${i}`);
             const transform = node.addComponent(UITransform);
             transform.setContentSize(new Size(cfg.w, cfg.h));
             node.setPosition(cfg.x, cfg.y, 0);
@@ -275,7 +277,6 @@ export class GameSceneSetup extends Component {
 
     private createPlayerInfoPanels(parent: Node): Node[] {
         const panels: Node[] = [];
-
         const infoConfigs = [
             { x: 480, y: -290, seat: '東' },     // 0: 自己 (右下角)
             { x: 520, y: 280, seat: '南' },      // 1: 右方 (右上角)
@@ -285,7 +286,7 @@ export class GameSceneSetup extends Component {
 
         for (let i = 0; i < 4; i++) {
             const cfg = infoConfigs[i];
-            const node = new Node(`PlayerInfo_${i}`);
+            const node = uiNode(`PlayerInfo_${i}`);
             const transform = node.addComponent(UITransform);
             transform.setContentSize(new Size(140, 80));
             node.setPosition(cfg.x, cfg.y, 0);
@@ -296,7 +297,6 @@ export class GameSceneSetup extends Component {
             g.roundRect(-70, -40, 140, 80, 8);
             g.fill();
             if (i === 0) {
-                // 自己的面板用金色邊框高亮
                 g.strokeColor = new Color(200, 170, 80, 200);
                 g.lineWidth = 2;
                 g.roundRect(-70, -40, 140, 80, 8);

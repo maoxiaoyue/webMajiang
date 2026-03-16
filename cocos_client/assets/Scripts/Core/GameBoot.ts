@@ -9,7 +9,7 @@
  *   5. GameSceneSetup.onLoad() 建構完整牌桌 UI
  */
 import {
-    _decorator, director, Director, Node, find, Component,
+    _decorator, director, Director, Node, find, Component, Layers,
     Canvas, Camera, UITransform, Widget, Size, Color, view
 } from 'cc';
 import { GameSceneSetup } from '../Views/Game/GameSceneSetup';
@@ -58,6 +58,7 @@ director.on(Director.EVENT_AFTER_SCENE_LAUNCH, () => {
 
     // 4. 建立 GameRoot 並掛載 GameSceneSetup
     const gameRoot = new Node('GameRoot');
+    gameRoot.layer = Layers.Enum.UI_2D;
     const rootTransform = gameRoot.addComponent(UITransform);
     rootTransform.setContentSize(new Size(1280, 720));
     canvasNode.addChild(gameRoot);
@@ -72,8 +73,7 @@ director.on(Director.EVENT_AFTER_SCENE_LAUNCH, () => {
 function createCanvasNode(scene: Node): Node {
     // Canvas 節點
     const canvasNode = new Node('Canvas');
-    // UI Layer = 1 << 25 = 33554432
-    canvasNode.layer = 33554432;
+    canvasNode.layer = Layers.Enum.UI_2D;
 
     const uiTransform = canvasNode.addComponent(UITransform);
     uiTransform.setContentSize(new Size(1280, 720));
@@ -90,7 +90,7 @@ function createCanvasNode(scene: Node): Node {
 
     // Camera 子節點
     const cameraNode = new Node('Camera');
-    cameraNode.layer = 33554432;
+    cameraNode.layer = Layers.Enum.UI_2D;
     cameraNode.setPosition(0, 0, 1000);
 
     const camUITransform = cameraNode.addComponent(UITransform);
@@ -103,7 +103,7 @@ function createCanvasNode(scene: Node): Node {
     cam.far = 2000;
     cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
     cam.clearColor = new Color(7, 82, 45, 255); // 深綠色背景
-    cam.visibility = 33554432; // UI_2D layer
+    cam.visibility = Layers.Enum.UI_2D;
 
     canvasNode.addChild(cameraNode);
 

@@ -1,9 +1,16 @@
-import { _decorator, Component, Node, Graphics, Label, Color, UITransform, Vec3 } from 'cc';
+import { _decorator, Component, Node, Graphics, Label, Color, UITransform, Vec3, Layers } from 'cc';
 import { TileRenderer } from '../../Core/TileRenderer';
 import { EventMgr } from '../../Events/EventMgr';
 import { NetworkMgr } from '../../Core/NetworkMgr';
 
 const { ccclass, property } = _decorator;
+const UI_2D = Layers.Enum.UI_2D;
+
+function uiNode(name: string): Node {
+    const n = new Node(name);
+    n.layer = UI_2D;
+    return n;
+}
 
 /** 手牌槽間距 (px) */
 const TILE_SPACING = 64;
@@ -263,7 +270,7 @@ export class HandView extends Component {
     }
 
     private _createActionPanel(): void {
-        this._actionPanel = new Node('ActionPanel');
+        this._actionPanel = uiNode('ActionPanel');
         this._actionPanel.parent = this.node;
 
         const actions = [
@@ -278,22 +285,19 @@ export class HandView extends Component {
         let startX = -panelWidth / 2 + 40;
 
         actions.forEach((act, index) => {
-            const btnNode = new Node(act.name);
+            const btnNode = uiNode(act.name);
             btnNode.parent = this._actionPanel;
             btnNode.setPosition(startX + index * 80, 0, 0);
 
-            // 新增 UITransform 以接收互動事件與設定大小
             const uiTrans = btnNode.addComponent(UITransform);
             uiTrans.setContentSize(70, 70);
 
-            // 繪製圓角矩形背景
             const graphics = btnNode.addComponent(Graphics);
             graphics.fillColor = act.color;
             graphics.roundRect(-35, -35, 70, 70, 15);
             graphics.fill();
 
-            // 加入文字標籤
-            const labelNode = new Node('Label');
+            const labelNode = uiNode('Label');
             labelNode.parent = btnNode;
             const label = labelNode.addComponent(Label);
             label.string = act.text;
