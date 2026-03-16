@@ -1,8 +1,8 @@
 server:
   addr: ":9090"
-  protocol: "http2" # HTTP/2 with HTTP/1.1 fallback (避免 HTTP/3 QUIC 失敗)
+  protocol: "http1" # HTTP/2 with HTTP/1.1 fallback (避免 HTTP/3 QUIC 失敗)
   tls:
-    enabled: true
+    enabled: false
     cert_file: "cert.pem"
     key_file: "key.pem"
   read_timeout: 30s
