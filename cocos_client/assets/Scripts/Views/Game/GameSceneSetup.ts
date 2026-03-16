@@ -365,18 +365,8 @@ export class GameSceneSetup extends Component {
         const playerId = String(lobbyParams.seatId || '1');
         (window as any).__SELF_PLAYER_ID__ = playerId;
 
-        const wsUrl = lobbyParams.wsUrl || 'wss://lobby.cxwoo.com/game-ws';
-        console.log(`[GameSceneSetup] 自動連線 WebSocket: ${wsUrl}, playerId=${playerId}`);
-
-        NetworkMgr.instance.connect(wsUrl);
-
-        // 連線成功後自動加入房間
-        EventMgr.once(NetworkMgr.EVENT_CONNECTED, () => {
-            console.log('[GameSceneSetup] WebSocket 已連線，發送 join_room');
-            NetworkMgr.instance.send('join_room', {
-                room_id: lobbyParams.gameId || 'default_room',
-                player_id: playerId,
-            });
-        });
+        // LobbyBridge (index.html) 已經建立 WebSocket 並發送 join_room，
+        // 透過 __COCOS_EVENT_MGR__ 轉發事件到 EventMgr，不需要再建立第二條連線。
+        console.log(`[GameSceneSetup] LobbyBridge 已連線，playerId=${playerId}, 等待 sync_state`);
     }
 }

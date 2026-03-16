@@ -95,8 +95,8 @@
             console.log('[LobbyBridge] Connected! Sending join_room for game:', gameId);
             try {
                 var joinReqData = window.mahjong_pb.encodeJoinRoomReq({
-                    roomId: gameId,
-                    playerId: String(seatId)
+                    room_id: gameId,
+                    player_id: String(seatId)
                 });
                 var envelope = window.mahjong_pb.encodeWSMessage({
                     action: 'join_room',

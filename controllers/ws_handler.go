@@ -114,6 +114,9 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 		fmt.Sscanf(joinReq.PlayerId, "%d", &playerID)
 	}
 
+	utils.Info("[WS] handleJoinRoom: gameID=%q, playerID=%d, rawRoomId=%q, rawPlayerId=%q",
+		gameID, playerID, joinReq.RoomId, joinReq.PlayerId)
+
 	// 儲存 gameID 和 playerID 到 client metadata
 	client.SetMetadata("gameID", gameID)
 	client.SetMetadata("playerID", playerID)
@@ -130,9 +133,12 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 	// 載入遊戲狀態
 	state, err := LoadGameState(ctx, gameID)
 	if err != nil {
+		utils.Error("[WS] handleJoinRoom: LoadGameState 失敗: gameID=%q, err=%v", gameID, err)
 		sendWSError(client, action, "載入遊戲狀態失敗: "+err.Error())
 		return
 	}
+
+	utils.Info("[WS] handleJoinRoom: 載入成功, stage=%q, players=%d", state.Stage, len(state.Players))
 
 	// 自動啟動遊戲流程：WAITING_PLAYERS → 擲骰 → 決定莊家 → 發牌
 	if state.Stage == models.StageWaitingPlayers {
