@@ -1,7 +1,7 @@
 {
   "__version__": "1.3.9",
   "log": {
-    "level": 4
+    "level": 2
   },
   "common": {
     "binGroupConfig": {
@@ -18,16 +18,16 @@
   },
   "BuildTaskManager": {
     "taskMap": {
-      "1773669952297": {
+      "1773674706759": {
         "type": "build",
-        "id": "1773669952297",
+        "id": "1773674706759",
         "progress": 1,
         "state": "success",
         "stage": "build",
-        "message": "2026-3-16 22:06:00 build success in 8 s!",
-        "detailMessage": "// ---- build task cocos-service：onAfterBuild ----\r",
+        "message": "2026-3-16 23:25:18 build success in 11 s!",
+        "detailMessage": "// ---- build task cocos-service：onAfterCompressSettings ----\r",
         "options": {
-          "name": "cocos_client",
+          "name": "mjgame",
           "server": "",
           "engineModulesConfigKey": "defaultConfig",
           "platform": "web-mobile",
@@ -68,13 +68,13 @@
           "useSplashScreen": true,
           "bundleCommonChunk": false,
           "packAutoAtlas": true,
-          "startScene": "40669110-dfb0-430e-9db6-8fe7f83a2e1c",
+          "startScene": "e1468fd5-4fda-4824-a01a-ee0a59b83298",
           "outputName": "web-mobile",
           "taskName": "web-mobile",
           "scenes": [
             {
               "url": "db://assets/main.scene",
-              "uuid": "40669110-dfb0-430e-9db6-8fe7f83a2e1c"
+              "uuid": "e1468fd5-4fda-4824-a01a-ee0a59b83298"
             }
           ],
           "wasmCompressionMode": false,
@@ -84,9 +84,9 @@
           },
           "packages": {},
           "__version__": "1.3.9",
-          "logDest": "project://temp/builder/log/web-mobile2026-3-16 22-05.log"
+          "logDest": "project://temp/builder/log/web-mobile2026-3-16 23-25.log"
         },
-        "time": "2026-3-16 22:05:52",
+        "time": "2026-3-16 23:25:06",
         "dirty": false
       }
     }

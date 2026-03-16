@@ -1,117 +1,113 @@
 /**
- * GameBoot: 自動啟動器
+ * GameBoot: 遊戲場景自動啟動器 (Component 版本)
  *
- * 運作機制：
- *   1. Cocos 引擎載入 main.scene
- *   2. 本模組監聽 EVENT_AFTER_SCENE_LAUNCH
- *   3. 在場景中找到或建立 Canvas + 2D Camera
- *   4. 建立 GameRoot 子節點並掛載 GameSceneSetup
- *   5. GameSceneSetup.onLoad() 建構完整牌桌 UI
+ * 掛載到場景中任意節點（如編輯器建立的 Canvas 節點）。
+ * start() 會自動補齊 2D 渲染所需的元件：
+ *   Canvas component、UITransform、Camera2D、Widget
+ * 然後建立 GameRoot 掛載 GameSceneSetup。
  */
 import {
-    _decorator, director, Director, Node, find, Component, Layers,
-    Canvas, Camera, UITransform, Widget, Size, Color, view
+    _decorator, Node, Component, Layers,
+    Canvas, Camera, UITransform, Widget, Size, Color, view, find
 } from 'cc';
 import { GameSceneSetup } from '../Views/Game/GameSceneSetup';
 
 const { ccclass } = _decorator;
 
-/**
- * @ccclass 確保此模組被 Cocos Creator 打包系統收錄。
- * 類別本身不需掛到場景上，純粹利用模組載入時的副作用。
- */
+const UI_2D = Layers.Enum.UI_2D;
+
 @ccclass('GameBoot')
-class GameBoot extends Component {}
+export class GameBoot extends Component {
 
-// 場景載入後自動執行
-director.on(Director.EVENT_AFTER_SCENE_LAUNCH, () => {
-    const scene = director.getScene();
-    if (!scene) {
-        console.error('[GameBoot] director.getScene() 回傳 null');
-        return;
+    start(): void {
+        console.log('[GameBoot] start() 開始初始化...');
+
+        const canvasNode = this.node;
+
+        // 1. 確保節點在 UI_2D layer
+        canvasNode.layer = UI_2D;
+        console.log(`[GameBoot] 設定 Canvas layer = UI_2D (${UI_2D})`);
+
+        // 2. 補齊 UITransform
+        if (!canvasNode.getComponent(UITransform)) {
+            const uiTransform = canvasNode.addComponent(UITransform);
+            const designSize = view.getDesignResolutionSize();
+            uiTransform.setContentSize(new Size(designSize.width, designSize.height));
+            console.log(`[GameBoot] 新增 UITransform (${designSize.width}x${designSize.height})`);
+        }
+
+        // 3. 補齊 Canvas component
+        if (!canvasNode.getComponent(Canvas)) {
+            canvasNode.addComponent(Canvas);
+            console.log('[GameBoot] 新增 Canvas component');
+        }
+
+        // 4. 補齊 Widget（全螢幕自適應）
+        if (!canvasNode.getComponent(Widget)) {
+            const widget = canvasNode.addComponent(Widget);
+            widget.isAlignTop = true;
+            widget.isAlignBottom = true;
+            widget.isAlignLeft = true;
+            widget.isAlignRight = true;
+            widget.top = 0;
+            widget.bottom = 0;
+            widget.left = 0;
+            widget.right = 0;
+            console.log('[GameBoot] 新增 Widget (全螢幕)');
+        }
+
+        // 5. 確保有 2D Camera
+        this.ensure2DCamera(canvasNode);
+
+        // 6. 避免重複掛載
+        if (canvasNode.getComponentInChildren(GameSceneSetup)) {
+            console.log('[GameBoot] GameSceneSetup 已存在，跳過');
+            return;
+        }
+
+        // 7. 建立 GameRoot 並掛載 GameSceneSetup
+        const gameRoot = new Node('GameRoot');
+        gameRoot.layer = UI_2D;
+        const rootTransform = gameRoot.addComponent(UITransform);
+        rootTransform.setContentSize(new Size(1280, 720));
+        canvasNode.addChild(gameRoot);
+        gameRoot.addComponent(GameSceneSetup);
+
+        console.log('[GameBoot] 遊戲場景初始化完成');
     }
 
-    // 1. 嘗試找到既有的 Canvas 節點 (按名稱 or 組件)
-    let canvasNode = find('Canvas');
-    if (!canvasNode) {
-        // 遍歷場景根節點的子節點，看有沒有掛 Canvas 組件的
-        scene.children.forEach((child) => {
-            if (!canvasNode && child.getComponent(Canvas)) {
-                canvasNode = child;
+    /**
+     * 確保場景中有一台能看到 UI_2D layer 的 2D Camera。
+     * 如果現有 Camera 都是 3D (perspective)，就在 canvasNode 下新建一台。
+     */
+    private ensure2DCamera(canvasNode: Node): void {
+        // 檢查場景中是否已有 2D Camera (orthographic + visibility 含 UI_2D)
+        const scene = canvasNode.scene;
+        const allCameras = scene.getComponentsInChildren(Camera);
+        for (const cam of allCameras) {
+            // projection 0 = ortho, 1 = perspective
+            if (cam.projection === 0 && (cam.visibility & UI_2D)) {
+                console.log('[GameBoot] 找到現有 2D Camera，無需建立');
+                return;
             }
-        });
+        }
+
+        // 沒有合適的 2D Camera → 建立一台
+        const camNode = new Node('Camera2D');
+        camNode.layer = UI_2D;
+        camNode.setPosition(0, 0, 1000);
+
+        const cam = camNode.addComponent(Camera);
+        cam.projection = 0;           // orthographic
+        cam.near = 0;
+        cam.far = 2000;
+        cam.orthoHeight = view.getDesignResolutionSize().height / 2;
+        cam.visibility = UI_2D;
+        cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+        cam.clearColor = new Color(0, 0, 0, 255);
+        cam.priority = 1;  // 比 3D 相機高，確保最後渲染
+
+        canvasNode.addChild(camNode);
+        console.log('[GameBoot] 建立 2D Camera (orthographic, priority=1)');
     }
-
-    // 2. 如果完全找不到 Canvas，就自行建立
-    if (!canvasNode) {
-        console.log('[GameBoot] 場景中無 Canvas，自動建立 Canvas + Camera2D');
-        canvasNode = createCanvasNode(scene);
-    } else {
-        console.log(`[GameBoot] 找到 Canvas 節點: "${canvasNode.name}"`);
-    }
-
-    // 3. 避免重複掛載
-    if (canvasNode.getComponentInChildren(GameSceneSetup)) {
-        console.log('[GameBoot] GameSceneSetup 已存在，跳過');
-        return;
-    }
-
-    // 4. 建立 GameRoot 並掛載 GameSceneSetup
-    const gameRoot = new Node('GameRoot');
-    gameRoot.layer = Layers.Enum.UI_2D;
-    const rootTransform = gameRoot.addComponent(UITransform);
-    rootTransform.setContentSize(new Size(1280, 720));
-    canvasNode.addChild(gameRoot);
-    gameRoot.addComponent(GameSceneSetup);
-
-    console.log('[GameBoot] 遊戲場景自動初始化完成');
-});
-
-/**
- * 建立 Canvas + Camera2D 節點並加入場景
- */
-function createCanvasNode(scene: Node): Node {
-    // Canvas 節點
-    const canvasNode = new Node('Canvas');
-    canvasNode.layer = Layers.Enum.UI_2D;
-
-    const uiTransform = canvasNode.addComponent(UITransform);
-    uiTransform.setContentSize(new Size(1280, 720));
-
-    const widget = canvasNode.addComponent(Widget);
-    widget.isAlignLeft = true;
-    widget.isAlignRight = true;
-    widget.isAlignTop = true;
-    widget.isAlignBottom = true;
-    widget.left = 0;
-    widget.right = 0;
-    widget.top = 0;
-    widget.bottom = 0;
-
-    // Camera 子節點
-    const cameraNode = new Node('Camera');
-    cameraNode.layer = Layers.Enum.UI_2D;
-    cameraNode.setPosition(0, 0, 1000);
-
-    const camUITransform = cameraNode.addComponent(UITransform);
-    camUITransform.setContentSize(new Size(1280, 720));
-
-    const cam = cameraNode.addComponent(Camera);
-    cam.projection = Camera.ProjectionType.ORTHO;
-    cam.orthoHeight = view.getVisibleSize().height / 2;
-    cam.near = 0;
-    cam.far = 2000;
-    cam.clearFlags = Camera.ClearFlag.SOLID_COLOR;
-    cam.clearColor = new Color(7, 82, 45, 255); // 深綠色背景
-    cam.visibility = Layers.Enum.UI_2D;
-
-    canvasNode.addChild(cameraNode);
-
-    // 掛載 Canvas 組件並指定 Camera
-    const canvasComp = canvasNode.addComponent(Canvas);
-    canvasComp.cameraComponent = cam;
-    canvasComp.alignCanvasWithScreen = true;
-
-    scene.addChild(canvasNode);
-    return canvasNode;
 }
