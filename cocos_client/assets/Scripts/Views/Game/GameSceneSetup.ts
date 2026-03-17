@@ -5,6 +5,7 @@ import {
 } from 'cc';
 import { GameView } from './GameView';
 import { HandView } from './HandView';
+import { WallView } from './WallView';
 import { PlayerInfoView } from './PlayerInfoView';
 import { NetworkMgr } from '../../Core/NetworkMgr';
 import { ErrorReporter } from '../../Core/ErrorReporter';
@@ -72,18 +73,24 @@ export class GameSceneSetup extends Component {
         // 2. 中央資訊面板
         const centerPanel = this.createCenterInfoPanel(rootNode);
 
-        // 3. 棄牌區 (4 個)
+        // 3. 牌牆容器 (在棄牌區之下，中央面板之上)
+        const wallNode = uiNode('TileWall');
+        rootNode.addChild(wallNode);
+        const wallView = wallNode.addComponent(WallView);
+
+        // 4. 棄牌區 (4 個)
         const discardNodes = this.createDiscardAreas(rootNode);
 
-        // 4. 手牌容器 (4 個)
+        // 5. 手牌容器 (4 個)
         const handNodes = this.createHandAreas(rootNode);
 
-        // 5. 玩家資訊面板 (4 個)
+        // 6. 玩家資訊面板 (4 個)
         const playerInfoNodes = this.createPlayerInfoPanels(rootNode);
 
-        // 6. 掛載 GameView 並綁定節點
+        // 7. 掛載 GameView 並綁定節點
         this._gameView = rootNode.addComponent(GameView);
         this._gameView.centerInfoPanel = centerPanel;
+        this._gameView.wallView = wallView;
         this._gameView.playerHandNodes = handNodes;
         this._gameView.playerDiscardNodes = discardNodes;
 
@@ -97,11 +104,11 @@ export class GameSceneSetup extends Component {
             this._gameView.currentWindLabel = windLabel.getComponent(Label)!;
         }
 
-        // 7. 為自己的手牌區掛 HandView
+        // 8. 為自己的手牌區掛 HandView
         const selfHandView = handNodes[0].addComponent(HandView);
         selfHandView.isSelf = true;
 
-        // 8. 顯示 demo 手牌（僅無 LobbyBridge 時使用，有真實連線時由 sync_state 驅動）
+        // 9. 顯示 demo 手牌（僅無 LobbyBridge 時使用，有真實連線時由 sync_state 驅動）
         if (!(window as any).__LOBBY_PARAMS__) {
             this.showDemoHand(selfHandView, handNodes);
         }

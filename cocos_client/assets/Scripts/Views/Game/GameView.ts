@@ -3,6 +3,7 @@ import { BaseView } from '../BaseView';
 import { GameViewModel } from '../../ViewModels/Game/GameViewModel';
 import { EventMgr } from '../../Events/EventMgr';
 import { TileRenderer, TileDisplayMode } from '../../Core/TileRenderer';
+import { WallView } from './WallView';
 
 const { ccclass, property } = _decorator;
 
@@ -27,7 +28,11 @@ export class GameView extends BaseView {
     // 玩家棄牌區容器
     public playerDiscardNodes: Node[] = [];
 
+    // 牌牆
+    public wallView: WallView | null = null;
+
     private handTileRenderers: TileRenderer[] = [];
+    private _wallBuilt: boolean = false;
 
     protected onLoad(): void {
         this.viewModel = new GameViewModel();
@@ -128,6 +133,15 @@ export class GameView extends BaseView {
     // ============================================
 
     private onGameStateChanged(modelInfo: any) {
+        // 首次收到遊戲狀態時，啟動砌牌動畫
+        if (!this._wallBuilt && this.wallView && modelInfo.gameState) {
+            const params = (window as any).__LOBBY_PARAMS__;
+            const gameType = params?.gameType || 16;
+            const stacksPerWall = gameType === 13 ? 17 : 18;
+            this.wallView.buildWall(stacksPerWall);
+            this._wallBuilt = true;
+        }
+
         if (this.remainingTilesLabel && modelInfo.remainingTiles != null) {
             this.remainingTilesLabel.string = `剩餘: ${modelInfo.remainingTiles}`;
         }
