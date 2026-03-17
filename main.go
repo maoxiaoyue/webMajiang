@@ -33,6 +33,11 @@ func main() {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		fmt.Printf("Config validation failed: %v\n", err)
+		os.Exit(1)
+	}
 
 	// 載入自訂配置（Redis）
 	appCfg := &AppConfig{}

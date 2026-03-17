@@ -5,17 +5,20 @@ function encodeWSMessage(message) {
 }
 
 function _encodeWSMessage(message, bb) {
-  // optional string action = 1;
+  // hypgo v0.7.1 WsMessage 格式
+  // optional string type = 1; (對應 action)
   let $action = message.action;
   if ($action !== undefined) {
-    writeVarint32(bb, 10);
+    writeVarint32(bb, 10);  // (1 << 3) | 2
     writeString(bb, $action);
   }
 
-  // optional bytes data = 2;
+  // optional string channel = 2; (麻將不需要，跳過)
+
+  // optional bytes data = 3;
   let $data = message.data;
   if ($data !== undefined) {
-    writeVarint32(bb, 18);
+    writeVarint32(bb, 26);  // (3 << 3) | 2
     writeVarint32(bb, $data.length), writeBytes(bb, $data);
   }
 }
@@ -34,18 +37,27 @@ function _decodeWSMessage(bb) {
       case 0:
         break end_of_message;
 
-      // optional string action = 1;
+      // hypgo v0.7.1 WsMessage 格式
+      // optional string type = 1; (對應 action)
       case 1: {
         message.action = readString(bb, readVarint32(bb));
         break;
       }
 
-      // optional bytes data = 2;
+      // optional string channel = 2; (跳過)
       case 2: {
+        readString(bb, readVarint32(bb));
+        break;
+      }
+
+      // optional bytes data = 3;
+      case 3: {
         message.data = readBytes(bb, readVarint32(bb));
         break;
       }
 
+      // optional int64 timestamp = 4; (跳過)
+      // optional string client_id = 5; (跳過)
       default:
         skipUnknownField(bb, tag & 7);
     }

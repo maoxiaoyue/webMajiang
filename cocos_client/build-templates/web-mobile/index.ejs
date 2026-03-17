@@ -88,7 +88,7 @@
         }
         console.log('[LobbyBridge] mahjong_pb ready, connecting to', wsUrl);
 
-        var ws = new WebSocket(wsUrl);
+        var ws = new WebSocket(wsUrl, 'protobuf');
         ws.binaryType = 'arraybuffer';
 
         ws.onopen = function() {

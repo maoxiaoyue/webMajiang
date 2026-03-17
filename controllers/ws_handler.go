@@ -30,67 +30,63 @@ func keepOnline(playerIDStr string) {
 	}
 }
 
-// HandleWebSocketMessage acts as the main router for incoming WebSocket messages (Now using Protobuf)
+// HandleWebSocketMessage acts as the main router for incoming WebSocket messages
+// v0.7.1: hypgo ProtobufCodec 已處理外層 WsMessage 信封，
+// msg.Type = action 名稱, msg.Data = 內層 protobuf bytes
 func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 	ctx := context.Background()
 
-	// 1. 先解析最外層的 WSMessage (Protobuf)
-	var req pb.WSMessage
-	if err := proto.Unmarshal(msg.Data, &req); err != nil {
-		sendWSError(client, "ParseError", "invalid protobuf payload")
-		return
-	}
-
-	action := req.Action
+	action := msg.Type
+	data := []byte(msg.Data) // json.RawMessage → []byte (即內層 protobuf payload)
 
 	switch action {
 	// === 玩家加入房間 ===
 	case "join_room":
-		handleJoinRoom(ctx, client, action, req.Data)
+		handleJoinRoom(ctx, client, action, data)
 
 	// === 決定座位 (擲骰子) ===
 	case "roll_positions":
-		handleRollPositions(ctx, client, action, req.Data)
+		handleRollPositions(ctx, client, action, data)
 
 	// === 決定莊家 (擲骰子) ===
 	case "roll_dealer":
-		handleRollDealer(ctx, client, action, req.Data)
+		handleRollDealer(ctx, client, action, data)
 
 	// === 觸發發牌 ===
 	case "deal_tiles":
-		handleDealTiles(ctx, client, action, req.Data)
+		handleDealTiles(ctx, client, action, data)
 
 	// === 手牌排序 ===
 	case "sort_hand":
-		handleSortHand(ctx, client, action, req.Data)
+		handleSortHand(ctx, client, action, data)
 
 	// === 玩家摸牌 ===
 	case "draw_tile":
-		handleDrawTile(ctx, client, action, req.Data)
+		handleDrawTile(ctx, client, action, data)
 
 	// === 玩家出牌 ===
 	case "discard_tile":
-		handleDiscardTile(ctx, client, action, req.Data)
+		handleDiscardTile(ctx, client, action, data)
 
 	// === 玩家宣告 (吃/碰/槓/胡/放棄) ===
 	case "player_action":
-		handlePlayerAction(ctx, client, action, req.Data)
+		handlePlayerAction(ctx, client, action, data)
 
 	// === 進入下一局 ===
 	case "next_round":
-		handleNextRound(ctx, client, action, req.Data)
+		handleNextRound(ctx, client, action, data)
 
 	// === 查詢目前遊戲狀態 ===
 	case "get_state":
-		handleGetState(ctx, client, action, req.Data)
+		handleGetState(ctx, client, action, data)
 
 	// === 查詢各家手牌 ===
 	case "get_hands":
-		handleGetHands(ctx, client, action, req.Data)
+		handleGetHands(ctx, client, action, data)
 
 	// === 查詢牌堆剩餘數量 ===
 	case "get_deck_count":
-		handleGetDeckCount(ctx, client, action, req.Data)
+		handleGetDeckCount(ctx, client, action, data)
 
 	default:
 		utils.Info("Unhandled websocket action type: %s", action)
@@ -665,7 +661,8 @@ func getClientPlayerID(client *websocket.Client) int {
 	return 1
 }
 
-// 幫助函數：封裝並發送 Protobuf WSMessage 回到單一客戶端
+// 幫助函數：封裝並發送回應到單一客戶端 (v0.7.1 codec-aware)
+// hypgo 的 SendToClient 偵測到 *websocket.Message 時會使用客戶端的 codec 序列化
 func sendProtoResponse(client *websocket.Client, action string, data proto.Message) {
 	b, err := proto.Marshal(data)
 	if err != nil {
@@ -673,35 +670,30 @@ func sendProtoResponse(client *websocket.Client, action string, data proto.Messa
 		return
 	}
 
-	msg := &pb.WSMessage{
-		Action: action,
-		Data:   b,
+	msg := &websocket.Message{
+		Type: action,
+		Data: b,
 	}
 
-	outBytes, _ := proto.Marshal(msg)
-
-	// 發送二進位資料
-	client.Hub.SendToClient(client.ID, outBytes)
+	client.Hub.SendToClient(client.ID, msg)
 }
 
-// 幫助函數：封裝並廣播 Protobuf WSMessage
+// 幫助函數：廣播到所有客戶端 (v0.7.1 codec-aware)
+// BroadcastMessage 會依每個客戶端的 codec 自動序列化
 func sendProtoBroadcast(hub *websocket.Hub, action string, data proto.Message) {
 	b, _ := proto.Marshal(data)
-	msg := &pb.WSMessage{
-		Action: action,
-		Data:   b,
+	msg := &websocket.Message{
+		Type: action,
+		Data: b,
 	}
-	outBytes, _ := proto.Marshal(msg)
-	hub.Broadcast(outBytes)
+	hub.BroadcastMessage(msg)
 }
 
 func sendWSError(client *websocket.Client, action string, errorMsg string) {
-	utils.Error("[WS Protobuf Error] Action: %s, Err: %s", action, errorMsg)
+	utils.Error("[WS Error] Action: %s, Err: %s", action, errorMsg)
 
-	// Send to frontend as [DEBUG]
 	debugMsg := fmt.Sprintf("[DEBUG] Action: %s, Err: %s", action, errorMsg)
 
-	// 簡單封裝錯誤訊息回傳給前端
 	sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
 		Success: false,
 		Message: debugMsg,
