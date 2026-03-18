@@ -230,43 +230,46 @@ export class HandView extends Component {
     // 玩家宣告按鈕 (碰/吃/槓/胡/過)
     // ============================================================
 
-    public showActionButtons(roomId: string, tileId: number): void {
+    /**
+     * 顯示可用動作按鈕（使用 DOM 元素覆蓋，避免 Cocos 渲染層級問題）
+     */
+    public showFilteredActionButtons(roomId: string, tileId: number, canPong: boolean, canKong: boolean, canChow: boolean, canHu: boolean): void {
         if (!this.isSelf) return;
-        if (!this._actionPanel) {
-            this._createActionPanel();
-        }
-        this._actionPanel!.active = true;
+        this.hideActionButtons();
 
-        // 定位在最新進牌（最右側）的正上方
-        const rightmostX = this._calcX(this._tileIds.length, this._tileIds.length + 1);
-        this._actionPanel!.setPosition(rightmostX, 150, 0);
+        const actions: { name: string; text: string; at: number; color: string }[] = [];
+        if (canChow) actions.push({ name: 'chow', text: '吃', at: 2, color: '#329632' });
+        if (canPong) actions.push({ name: 'pong', text: '碰', at: 3, color: '#3264c8' });
+        if (canKong) actions.push({ name: 'kong', text: '槓', at: 4, color: '#c89632' });
+        if (canHu) actions.push({ name: 'hu', text: '胡', at: 5, color: '#c83232' });
+        actions.push({ name: 'pass', text: '過', at: 6, color: '#646464' });
 
-        // 重新綁定事件以更新 tileId 與 roomId
-        this._actionPanel!.children.forEach((btnNode: Node) => {
-            btnNode.off(Node.EventType.TOUCH_END);
-            const actionTypeStr = btnNode.name;
-            let actionType = 6; // pass
-            if (actionTypeStr === 'chow') actionType = 2;
-            if (actionTypeStr === 'pong') actionType = 3;
-            if (actionTypeStr === 'kong') actionType = 4;
-            if (actionTypeStr === 'hu') actionType = 5;
+        const panel = document.createElement('div');
+        panel.id = 'action-btn-panel';
+        panel.style.cssText = 'position:fixed;bottom:160px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;gap:10px;';
 
-            btnNode.on(Node.EventType.TOUCH_END, () => {
-                console.log(`[HandView] 玩家宣告: ${actionTypeStr}, tileId: ${tileId}`);
-                NetworkMgr.instance.send('player_action', {
-                    roomId: roomId,
-                    actionType: actionType,
-                    tileId: tileId
-                });
+        for (const act of actions) {
+            const btn = document.createElement('div');
+            btn.style.cssText = `width:64px;height:64px;border-radius:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:26px;font-weight:bold;color:#fff;background:${act.color};border:2px solid rgba(255,255,255,0.3);user-select:none;`;
+            btn.textContent = act.text;
+            btn.onclick = () => {
+                console.log(`[HandView] 玩家宣告: ${act.name}, tileId: ${tileId}`);
+                NetworkMgr.instance.send('player_action', { action_type: act.at, tile_id: tileId });
                 this.hideActionButtons();
-            });
-        });
+            };
+            panel.appendChild(btn);
+        }
+
+        document.body.appendChild(panel);
+        console.log(`[HandView] DOM action buttons shown: ${actions.map(a => a.name).join(',')}`);
     }
 
     public hideActionButtons(): void {
         if (this._actionPanel) {
             this._actionPanel.active = false;
         }
+        const el = document.getElementById('action-btn-panel');
+        if (el) el.remove();
     }
 
     private _createActionPanel(): void {

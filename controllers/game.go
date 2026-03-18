@@ -590,18 +590,34 @@ func PlayerDeclareAction(ctx context.Context, gameID string, playerID int, actio
 	}
 	state.ActionDeclarations[playerID] = action
 
-	// 檢查是否所有其他玩家都宣告了，或者有人直接胡了 (胡最大)
+	// 檢查是否所有其他玩家都宣告了
 	allDeclared := len(state.ActionDeclarations) == 3
 	hasHu := false
+	hasPong := false
 	for _, a := range state.ActionDeclarations {
 		if a == "hu" {
 			hasHu = true
 			break
 		}
+		if a == "pong" || a == "kong" {
+			hasPong = true
+		}
 	}
 
-	// 如果有人宣告 "hu" 或者所有人都表態了，進行結算
-	if hasHu || allDeclared {
+	// 胡最大，立即結算；碰/槓 > 吃，有碰/槓時也立即結算不等吃
+	shouldResolve := hasHu || allDeclared || hasPong
+	if shouldResolve {
+		// 碰/槓優先時，還沒宣告的玩家自動 pass
+		if !allDeclared {
+			for pid := 1; pid <= 4; pid++ {
+				if pid == state.LastDiscardPlayerID {
+					continue
+				}
+				if _, ok := state.ActionDeclarations[pid]; !ok {
+					state.ActionDeclarations[pid] = "pass"
+				}
+			}
+		}
 		state, err = ResolveActions(ctx, gameID, state)
 		if err != nil {
 			return nil, err
@@ -662,6 +678,7 @@ func ResolveActions(ctx context.Context, gameID string, state *models.GameState)
 
 		// 進入結算階段，忽略所有的碰/槓/吃
 		state.Stage = models.StageRoundOver
+		state.IsSelfDrawnWin = false // 胡別人的棄牌
 
 		// 根據與出牌者 (LastDiscardPlayerID) 的距離進行排序：下家(1) > 對家(2) > 上家(3)
 		// 距離算法: (pID - discarderID + 4) % 4
@@ -1139,6 +1156,7 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 	state.ActionDeclarations = make(map[int]string)
 	state.LastDiscardPlayerID = 0
 	state.LastDiscardTile = nil
+	state.IsSelfDrawnWin = false
 
 	if err := SaveGameState(ctx, state); err != nil {
 		return nil, false, err

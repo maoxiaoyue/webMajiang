@@ -65,13 +65,13 @@ func RunPostDiscard(ctx context.Context, gameID string) (*models.GameState, erro
 			return nil, fmt.Errorf("player %d declare failed: %w", pID, err)
 		}
 
-		// 若有人胡了，PlayerDeclareAction 會自動觸發 ResolveActions
-		if state.Stage == models.StageRoundOver {
-			return state, nil
+		// 若已結算（胡/碰/槓優先導致立即結算），不再繼續宣告
+		if state.Stage != models.StageWaitAction {
+			break
 		}
 	}
 
-	// 檢查是否還需要等待真人玩家宣告（有碰/胡的選項）
+	// 如果還在 WAIT_ACTION 階段，檢查是否還需要等待真人玩家
 	if state.Stage == models.StageWaitAction {
 		declared := len(state.ActionDeclarations)
 		if declared < 3 {
@@ -80,8 +80,7 @@ func RunPostDiscard(ctx context.Context, gameID string) (*models.GameState, erro
 		}
 	}
 
-	// 所有人都已表態，結算已在 PlayerDeclareAction 中自動觸發
-	// 接著推進到下一階段
+	// 已結算完畢（全pass/碰/槓/胡），推進到下一階段
 	return RunPostResolve(ctx, gameID)
 }
 
@@ -446,6 +445,7 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 		state.Stage = models.StageRoundOver
 		state.CurrentPlayerID = player.ID
 		state.WinnerIDs = []int{player.ID}
+		state.IsSelfDrawnWin = true
 		if err := SaveGameState(ctx, state); err != nil {
 			return nil, err
 		}
@@ -492,7 +492,20 @@ func runAIDiscard(ctx context.Context, gameID string, player models.Player) (*mo
 	}
 
 	// 出牌後自動推進（收集其他 AI 宣告等）
-	return RunPostDiscard(ctx, gameID)
+	resultState, err := RunPostDiscard(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果進入 WAIT_ACTION（等待真人玩家碰/吃/胡），廣播狀態讓前端顯示按鈕
+	if resultState != nil && resultState.Stage == models.StageWaitAction {
+		syncData := buildSyncStateData(gameID, resultState)
+		if globalHub != nil {
+			sendProtoBroadcast(globalHub, "sync_state", syncData)
+		}
+	}
+
+	return resultState, nil
 }
 
 // nudgeHumanPlayer 催促真人玩家做決定

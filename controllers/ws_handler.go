@@ -532,6 +532,7 @@ func handleSelfDrawHu(ctx context.Context, client *websocket.Client, action stri
 	state.Stage = models.StageRoundOver
 	state.CurrentPlayerID = playerID
 	state.WinnerIDs = []int{playerID}
+	state.IsSelfDrawnWin = true
 	if err := SaveGameState(ctx, state); err != nil {
 		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
 			Success: false,
@@ -995,25 +996,63 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 
 	// 將遊戲資訊 (莊家、骰子、結算) 編碼為 JSON
 	{
+		type WinnerInfo struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		}
 		type GameStatePayload struct {
-			Stage           string                     `json:"stage"`
-			DealerPlayerID  int                        `json:"dealer_player_id,omitempty"`
-			Dice1           int                        `json:"dice1,omitempty"`
-			Dice2           int                        `json:"dice2,omitempty"`
-			Dice3           int                        `json:"dice3,omitempty"`
-			ScoreResults    map[int]models.ScoreResult `json:"score_results,omitempty"`
+			Stage              string                     `json:"stage"`
+			DealerPlayerID     int                        `json:"dealer_player_id,omitempty"`
+			Dice1              int                        `json:"dice1,omitempty"`
+			Dice2              int                        `json:"dice2,omitempty"`
+			Dice3              int                        `json:"dice3,omitempty"`
+			ScoreResults       map[int]models.ScoreResult `json:"score_results,omitempty"`
+			IsSelfDrawn        bool                       `json:"is_self_drawn,omitempty"`
+			Winners            []WinnerInfo               `json:"winners,omitempty"`
+			LoserName          string                     `json:"loser_name,omitempty"`
+			LastDiscardPlayerID int                       `json:"last_discard_player_id,omitempty"`
+			RoundNumber        int                        `json:"round_number"`
+			RoundLabel         string                     `json:"round_label"`
 		}
 		payload := GameStatePayload{
 			Stage:          gameStateStr,
 			DealerPlayerID: state.DealerPlayerID,
 			Dice1:          state.Dice.Die1,
 			Dice2:          state.Dice.Die2,
+			RoundNumber:    state.Round.RoundNumber(),
+			RoundLabel:     state.Round.RoundLabel(),
 		}
 		if state.Dice.Die3 > 0 {
 			payload.Dice3 = state.Dice.Die3
 		}
-		if state.Stage == models.StageRoundOver && state.ScoreResults != nil {
-			payload.ScoreResults = state.ScoreResults
+		if state.Stage == models.StageRoundOver {
+			payload.IsSelfDrawn = state.IsSelfDrawnWin
+			payload.LastDiscardPlayerID = state.LastDiscardPlayerID
+			if state.ScoreResults != nil {
+				payload.ScoreResults = state.ScoreResults
+			}
+			// 寫入贏家名稱
+			for _, wid := range state.WinnerIDs {
+				wName := fmt.Sprintf("Player %d", wid)
+				if p, ok := state.Players[wid]; ok {
+					if p.Nickname != "" {
+						wName = p.Nickname
+					} else if p.Name != "" {
+						wName = p.Name
+					}
+				}
+				payload.Winners = append(payload.Winners, WinnerInfo{ID: wid, Name: wName})
+			}
+			// 寫入放槍者名稱
+			if !state.IsSelfDrawnWin && state.LastDiscardPlayerID > 0 {
+				if p, ok := state.Players[state.LastDiscardPlayerID]; ok {
+					if p.Nickname != "" {
+						payload.LoserName = p.Nickname
+					} else if p.Name != "" {
+						payload.LoserName = p.Name
+					}
+				}
+			}
 		}
 		if b, err := json.Marshal(payload); err == nil {
 			gameStateStr = string(b)
@@ -1045,6 +1084,11 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 			winnerStrIds[i] = fmt.Sprintf("%d", id)
 		}
 		syncData.WinnerIds = winnerStrIds
+	}
+
+	// 記錄最後出牌者 ID（用於前端判斷「自摸」vs「胡」）
+	if state.LastDiscardPlayerID > 0 {
+		syncData.LastDiscardPlayerId = fmt.Sprintf("%d", state.LastDiscardPlayerID)
 	}
 
 	// 將玩家資料逐一填入

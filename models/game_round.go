@@ -155,6 +155,7 @@ type GameState struct {
 	ActionDeclarations  map[int]string      `json:"action_declarations"`    // 紀錄各家在 WAIT_ACTION 階段宣吿的動作 ("pass", "pong", "kong", "hu")
 	WinnerIDs           []int               `json:"winner_ids"`             // 遊戲結束時贏家的 ID 列表 (支援一砲多響)
 	IsAfterKong         bool                `json:"is_after_kong"`          // 是否剛槓牌 (用於計算槓上開花)
+	IsSelfDrawnWin      bool                `json:"is_self_drawn_win"`      // 胡牌方式: true=自摸, false=胡別人的棄牌
 	ScoreResults        map[int]ScoreResult `json:"score_results"`          // 紀錄每位贏家的台數與牌型結算
 }
 

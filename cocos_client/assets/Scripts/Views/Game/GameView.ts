@@ -167,11 +167,23 @@ export class GameView extends BaseView {
         }
 
         // 檢查是否需要顯示玩家宣告按鈕 (碰/吃/槓/胡/過)
-        if (modelInfo.gameState === "WAIT_ACTION") {
+        // 使用 DOM 按鈕覆蓋，避免 Cocos 渲染層級問題
+        if (modelInfo.gameState === "WAIT_ACTION" && modelInfo.lastDiscardedTileId >= 0
+            && modelInfo.currentTurnPlayerId !== (modelInfo as any).selfPlayerId) {
             const handView = this.playerHandNodes[0]?.getComponent("HandView") as any;
-            if (handView && modelInfo.roomId) {
-                // TODO: 判斷自己是否出牌者
-                handView.showActionButtons(modelInfo.roomId, modelInfo.lastDiscardedTileId || -1);
+            if (handView && modelInfo.roomId && handView.showFilteredActionButtons) {
+                // 計算可用動作
+                const selfPlayer = modelInfo.players?.find((p: any) => p.seat === 0);
+                const handIds: number[] = selfPlayer?.handTiles || [];
+                const dGroup = Math.floor(modelInfo.lastDiscardedTileId / 4);
+                let matchCount = 0;
+                for (const hid of handIds) {
+                    if (Math.floor(hid / 4) === dGroup) matchCount++;
+                }
+                const canPong = matchCount >= 2;
+                const canKong = matchCount >= 3;
+                // TODO: chow/hu 判斷邏輯
+                handView.showFilteredActionButtons(modelInfo.roomId, modelInfo.lastDiscardedTileId, canPong, canKong, false, false);
             }
         } else {
             const handView = this.playerHandNodes[0]?.getComponent("HandView") as any;
