@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 	"webmajiang/models"
 	"webmajiang/models/pb"
 	"webmajiang/service"
@@ -28,6 +29,26 @@ func keepOnline(playerIDStr string) {
 	if err == nil {
 		models.KeepUserOnline(ctx, user.ID, user.Username)
 	}
+}
+
+// globalHub 全域 Hub 參考，供 game_loop 廣播用
+var globalHub *websocket.Hub
+
+// BroadcastBotSpeech 廣播 Bot 說話訊息
+func BroadcastBotSpeech(playerID int, content string) {
+	if globalHub == nil || content == "" {
+		return
+	}
+	payload := map[string]interface{}{
+		"player_id": playerID,
+		"content":   content,
+	}
+	jsonBytes, _ := json.Marshal(payload)
+	speech := &pb.PlayerActionRes{
+		Success: true,
+		Message: string(jsonBytes),
+	}
+	sendProtoBroadcast(globalHub, "bot_speech", speech)
 }
 
 // HandleWebSocketMessage acts as the main router for incoming WebSocket messages
@@ -68,6 +89,18 @@ func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 	case "discard_tile":
 		handleDiscardTile(ctx, client, action, data)
 
+	// === 暗槓 ===
+	case "concealed_kong":
+		handleConcealedKong(ctx, client, action, data)
+
+	// === 加槓 ===
+	case "add_kong":
+		handleAddKong(ctx, client, action, data)
+
+	// === 自摸 ===
+	case "self_draw_hu":
+		handleSelfDrawHu(ctx, client, action, data)
+
 	// === 玩家宣告 (吃/碰/槓/胡/放棄) ===
 	case "player_action":
 		handlePlayerAction(ctx, client, action, data)
@@ -98,6 +131,11 @@ func HandleWebSocketMessage(client *websocket.Client, msg *websocket.Message) {
 // =====================================
 
 func handleJoinRoom(ctx context.Context, client *websocket.Client, action string, data []byte) {
+	// 保存全域 Hub 供 game_loop 廣播用
+	if client.Hub != nil {
+		globalHub = client.Hub
+	}
+
 	var joinReq pb.JoinRoomReq
 	if err := proto.Unmarshal(data, &joinReq); err != nil {
 		sendWSError(client, action, "invalid JoinRoomReq data")
@@ -181,10 +219,11 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 		syncData := buildSyncStateData(gameID, state)
 		sendProtoBroadcast(client.Hub, "sync_state", syncData)
 
-		// 如果莊家是 AI，自動觸發莊家出牌
+		// 如果莊家是 AI，等待前端發牌動畫後再自動出牌
 		dealer, ok := state.Players[state.CurrentPlayerID]
 		if ok && dealer.IsBot {
 			go func() {
+				time.Sleep(6 * time.Second) // 等待前端發牌動畫完成
 				if err := ProcessAITurn(context.Background(), gameID, dealer); err != nil {
 					utils.Error("[WS] AI 莊家自動出牌失敗: %v", err)
 				}
@@ -400,6 +439,194 @@ func handleDrawTile(ctx context.Context, client *websocket.Client, action string
 	sendProtoBroadcast(client.Hub, "sync_state", syncData)
 }
 
+func handleConcealedKong(ctx context.Context, client *websocket.Client, action string, data []byte) {
+	var actionReq pb.PlayerActionData
+	if err := proto.Unmarshal(data, &actionReq); err != nil {
+		sendWSError(client, action, "invalid concealed_kong data")
+		return
+	}
+
+	gameID := getClientGameID(client)
+	playerID := getClientPlayerID(client)
+
+	// tileId 用來識別要槓哪種牌 — 從 0-based tile ID 查出花色和數值
+	tileID := int(actionReq.TileId)
+	tile := tileFromID(tileID)
+	if tile == nil {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: fmt.Sprintf("無效的牌 ID: %d", tileID),
+		})
+		return
+	}
+
+	state, err := ConcealedKongAction(ctx, gameID, playerID, tile.Type, tile.Value)
+	if err != nil {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+		Success: true,
+		Message: "暗槓成功",
+	})
+
+	// 廣播最新狀態
+	syncData := buildSyncStateData(gameID, state)
+	sendProtoBroadcast(client.Hub, "sync_state", syncData)
+}
+
+func handleSelfDrawHu(ctx context.Context, client *websocket.Client, action string, data []byte) {
+	gameID := getClientGameID(client)
+	playerID := getClientPlayerID(client)
+
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: "載入遊戲狀態失敗: " + err.Error(),
+		})
+		return
+	}
+
+	if state.Stage != models.StagePlayerDiscard {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: fmt.Sprintf("自摸不允許在此階段: %s", state.Stage),
+		})
+		return
+	}
+
+	if state.CurrentPlayerID != playerID {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: "不是你的回合",
+		})
+		return
+	}
+
+	// 取得手牌驗證是否真的可以胡
+	hand, err := GetPlayerHand(ctx, gameID, playerID)
+	if err != nil || !models.CanHu(hand) {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: "手牌不符合胡牌條件",
+		})
+		return
+	}
+
+	// 喊「自摸」
+	BroadcastBotSpeech(playerID, "自摸！")
+
+	// 廣播當前狀態讓大家看到
+	syncData := buildSyncStateData(gameID, state)
+	if client.Hub != nil {
+		sendProtoBroadcast(client.Hub, "sync_state", syncData)
+	}
+	time.Sleep(2 * time.Second)
+
+	// 設定 ROUND_OVER
+	state.Stage = models.StageRoundOver
+	state.CurrentPlayerID = playerID
+	state.WinnerIDs = []int{playerID}
+	if err := SaveGameState(ctx, state); err != nil {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: "儲存狀態失敗: " + err.Error(),
+		})
+		return
+	}
+
+	// 執行計分（呼叫 ResolveActions 中相同的計分邏輯）
+	rdb := service.RedisClient
+	var melds []models.Meld
+	meldsKey := PlayerMeldsKey(gameID, playerID)
+	meldJSONs, _ := rdb.LRange(ctx, meldsKey, 0, -1).Result()
+	for _, mj := range meldJSONs {
+		var m models.Meld
+		if json.Unmarshal([]byte(mj), &m) == nil {
+			melds = append(melds, m)
+		}
+	}
+	var flowers []models.Tile
+	flowersKey := PlayerFlowersKey(gameID, playerID)
+	flowerJSONs, _ := rdb.LRange(ctx, flowersKey, 0, -1).Result()
+	for _, fj := range flowerJSONs {
+		var t models.Tile
+		if json.Unmarshal([]byte(fj), &t) == nil {
+			flowers = append(flowers, t)
+		}
+	}
+
+	scoreCtx := models.ScoringContext{
+		ClosedHand:  hand,
+		Melds:       melds,
+		IsSelfDrawn: true,
+		IsDealer:    state.DealerPlayerID == playerID,
+		Flowers:     flowers,
+	}
+	scoreResult := models.CalculateScore(scoreCtx)
+	if state.ScoreResults == nil {
+		state.ScoreResults = make(map[int]models.ScoreResult)
+	}
+	state.ScoreResults[playerID] = scoreResult
+	if err := SaveGameState(ctx, state); err != nil {
+		utils.Error("[SelfDrawHu] 計分儲存失敗: %v", err)
+	}
+
+	utils.Info("[SelfDrawHu] 玩家 %d 自摸！TotalTai: %d", playerID, scoreResult.TotalTai)
+
+	sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+		Success: true,
+		Message: "自摸成功",
+	})
+
+	// 廣播結算狀態
+	finalSyncData := buildSyncStateData(gameID, state)
+	sendProtoBroadcast(client.Hub, "sync_state", finalSyncData)
+}
+
+func handleAddKong(ctx context.Context, client *websocket.Client, action string, data []byte) {
+	var actionReq pb.PlayerActionData
+	if err := proto.Unmarshal(data, &actionReq); err != nil {
+		sendWSError(client, action, "invalid add_kong data")
+		return
+	}
+
+	gameID := getClientGameID(client)
+	playerID := getClientPlayerID(client)
+
+	tileID := int(actionReq.TileId)
+	tile := tileFromID(tileID)
+	if tile == nil {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: fmt.Sprintf("無效的牌 ID: %d", tileID),
+		})
+		return
+	}
+
+	state, err := AddKongAction(ctx, gameID, playerID, tile.Type, tile.Value)
+	if err != nil {
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+		Success: true,
+		Message: "加槓成功",
+	})
+
+	syncData := buildSyncStateData(gameID, state)
+	sendProtoBroadcast(client.Hub, "sync_state", syncData)
+}
+
 func handleDiscardTile(ctx context.Context, client *websocket.Client, action string, data []byte) {
 	var actionReq pb.PlayerActionData
 	if err := proto.Unmarshal(data, &actionReq); err != nil {
@@ -412,8 +639,7 @@ func handleDiscardTile(ctx context.Context, client *websocket.Client, action str
 	playerID := getClientPlayerID(client)
 
 	tile := models.Tile{ID: int(actionReq.TileId)}
-	state, err := DiscardTileAction(ctx, gameID, playerID, tile)
-	if err != nil {
+	if _, err := DiscardTileAction(ctx, gameID, playerID, tile); err != nil {
 		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
 			Success: false,
 			Message: err.Error(),
@@ -426,11 +652,8 @@ func handleDiscardTile(ctx context.Context, client *websocket.Client, action str
 		Message: "出牌成功",
 	})
 
-	// 廣播最新狀態
-	syncData := buildSyncStateData(gameID, state)
-	sendProtoBroadcast(client.Hub, "sync_state", syncData)
-
-	// 出牌後自動推進遊戲循環 (收集 AI 宣告等)
+	// 不在此處廣播 WAIT_ACTION 狀態（會導致按鈕閃爍）
+	// 由 RunPostDiscard 決定最終狀態後再廣播
 	go func() {
 		newState, err := RunPostDiscard(context.Background(), gameID)
 		if err != nil {
@@ -494,11 +717,7 @@ func handlePlayerAction(ctx context.Context, client *websocket.Client, action st
 		Message: "動作成功",
 	})
 
-	// 廣播最新狀態
-	syncData := buildSyncStateData(gameID, state)
-	sendProtoBroadcast(client.Hub, "sync_state", syncData)
-
-	// 如果是出牌動作，觸發遊戲循環
+	// 出牌動作：不廣播中間 WAIT_ACTION，由 RunPostDiscard 處理
 	if actionReq.ActionType == 1 {
 		go func() {
 			newState, err := RunPostDiscard(context.Background(), gameID)
@@ -511,7 +730,12 @@ func handlePlayerAction(ctx context.Context, client *websocket.Client, action st
 				sendProtoBroadcast(client.Hub, "sync_state", syncData)
 			}
 		}()
+		return
 	}
+
+	// 宣告動作 (碰/槓/胡/過)：廣播最新狀態
+	syncData := buildSyncStateData(gameID, state)
+	sendProtoBroadcast(client.Hub, "sync_state", syncData)
 
 	// 如果是宣告動作且結算完畢，觸發後續推進
 	if actionReq.ActionType >= 2 && state.Stage != models.StageWaitAction {
@@ -548,18 +772,47 @@ func handleNextRound(ctx context.Context, client *websocket.Client, action strin
 		return
 	}
 
-	msg := fmt.Sprintf("進入下一局: %s", state.Round.RoundLabel())
 	if isComplete {
-		msg = "一將結束！遊戲完畢"
+		sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
+			Success: true,
+			Message: "一將結束！遊戲完畢",
+		})
+		syncData := buildSyncStateData(gameID, state)
+		sendProtoBroadcast(client.Hub, "sync_state", syncData)
+		return
+	}
+
+	// 發牌（NextRound 已設定 stage=DEALING）
+	state, err = DealTilesAction(ctx, gameID)
+	if err != nil {
+		utils.Error("[WS] NextRound DealTilesAction 失敗: %v", err)
+		sendWSError(client, action, "發牌失敗: "+err.Error())
+		return
 	}
 
 	sendProtoResponse(client, action+"_res", &pb.PlayerActionRes{
 		Success: true,
-		Message: msg,
+		Message: fmt.Sprintf("進入下一局: %s", state.Round.RoundLabel()),
 	})
 
+	// 廣播最新狀態
 	syncData := buildSyncStateData(gameID, state)
 	sendProtoBroadcast(client.Hub, "sync_state", syncData)
+
+	// 如果莊家是 AI，等待前端發牌動畫後再自動出牌
+	dealer, ok := state.Players[state.CurrentPlayerID]
+	if ok && dealer.IsBot {
+		go func() {
+			time.Sleep(6 * time.Second)
+			if err := ProcessAITurn(context.Background(), gameID, dealer); err != nil {
+				utils.Error("[WS] NextRound AI 莊家自動出牌失敗: %v", err)
+			}
+			if newState, err := LoadGameState(context.Background(), gameID); err == nil {
+				syncData := buildSyncStateData(gameID, newState)
+				sendProtoBroadcast(client.Hub, "sync_state", syncData)
+			}
+		}()
+	}
 }
 
 func handleGetState(ctx context.Context, client *websocket.Client, action string, data []byte) {
@@ -642,6 +895,41 @@ func handleGetDeckCount(ctx context.Context, client *websocket.Client, action st
 // =====================================
 
 // 從 client metadata 取得 gameID
+// tileFromID 從 0-based tile ID 取得牌的花色和數值
+// ID 0-107: 萬/筒/條 (每 36 張一花色, 每 4 張一數值)
+// ID 108-123: 風 (每 4 張一種)
+// ID 124-135: 元 (每 4 張一種)
+// ID 136-143: 花
+func tileFromID(id int) *models.Tile {
+	if id < 0 || id > 143 {
+		return nil
+	}
+	group := id / 4
+	var tileType models.TileType
+	var value int
+	switch {
+	case group < 9: // 萬 (0-8)
+		tileType = models.Wan
+		value = group + 1
+	case group < 18: // 筒 (9-17)
+		tileType = models.Tong
+		value = group - 9 + 1
+	case group < 27: // 條 (18-26)
+		tileType = models.Tiao
+		value = group - 18 + 1
+	case group < 31: // 風 (27-30)
+		tileType = models.Wind
+		value = group - 27 + 1
+	case group < 34: // 元 (31-33)
+		tileType = models.Dragon
+		value = group - 31 + 1
+	default: // 花 (34-35)
+		tileType = models.Flower
+		value = id - 136 + 1
+	}
+	return &models.Tile{ID: id, Type: tileType, Value: value}
+}
+
 func getClientGameID(client *websocket.Client) string {
 	if v, ok := client.GetMetadata("gameID"); ok {
 		if s, ok := v.(string); ok {
@@ -705,18 +993,28 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 	// 轉換 GameState 狀態名稱
 	gameStateStr := string(state.Stage)
 
-	// 如果處於結算階段且有結果，將台數資訊合併進 GameState string 中 (使用 JSON)
-	if state.Stage == models.StageRoundOver && state.ScoreResults != nil {
-		type RoundOverPayload struct {
-			Stage        string                     `json:"stage"`
-			ScoreResults map[int]models.ScoreResult `json:"score_results"`
+	// 將遊戲資訊 (莊家、骰子、結算) 編碼為 JSON
+	{
+		type GameStatePayload struct {
+			Stage           string                     `json:"stage"`
+			DealerPlayerID  int                        `json:"dealer_player_id,omitempty"`
+			Dice1           int                        `json:"dice1,omitempty"`
+			Dice2           int                        `json:"dice2,omitempty"`
+			Dice3           int                        `json:"dice3,omitempty"`
+			ScoreResults    map[int]models.ScoreResult `json:"score_results,omitempty"`
 		}
-
-		payload := RoundOverPayload{
-			Stage:        gameStateStr,
-			ScoreResults: state.ScoreResults,
+		payload := GameStatePayload{
+			Stage:          gameStateStr,
+			DealerPlayerID: state.DealerPlayerID,
+			Dice1:          state.Dice.Die1,
+			Dice2:          state.Dice.Die2,
 		}
-
+		if state.Dice.Die3 > 0 {
+			payload.Dice3 = state.Dice.Die3
+		}
+		if state.Stage == models.StageRoundOver && state.ScoreResults != nil {
+			payload.ScoreResults = state.ScoreResults
+		}
 		if b, err := json.Marshal(payload); err == nil {
 			gameStateStr = string(b)
 		}
@@ -725,12 +1023,19 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 	// 計算剩餘牌數
 	deckCount, _ := GetDeckCount(context.Background(), gameID)
 
+	// 計算 lastDiscardedTileId (用 tileID+1 編碼，0 表示無)
+	var lastDiscardedTileId int32 = 0
+	if state.LastDiscardTile != nil {
+		lastDiscardedTileId = int32(state.LastDiscardTile.ID) + 1
+	}
+
 	syncData := &pb.SyncStateData{
 		RoomId:              gameID,
 		CurrentWind:         int32(state.Round.PrevailingWind),
 		RemainingTiles:      int32(deckCount),
 		CurrentTurnPlayerId: fmt.Sprintf("%d", state.CurrentPlayerID),
 		GameState:           gameStateStr,
+		LastDiscardedTileId: lastDiscardedTileId,
 	}
 
 	// 處理多位贏家的資料傳遞
@@ -751,7 +1056,14 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 		}
 
 		if state.Players != nil && state.Players[p].ID != 0 {
-			pInfo.Name = state.Players[p].Name
+			player := state.Players[p]
+			// 優先使用暱稱，沒有則用 Name
+			if player.Nickname != "" {
+				pInfo.Name = player.Nickname
+			} else {
+				pInfo.Name = player.Name
+			}
+			pInfo.Score = int32(player.Points)
 		}
 
 		// 讀取手牌 (HandTiles)

@@ -238,6 +238,12 @@ func AddPlayerDiscard(ctx context.Context, gameID string, playerID int, tile mod
 	return service.RedisClient.RPush(ctx, key, string(data)).Err()
 }
 
+// RemoveLastDiscard 移除玩家棄牌列表中最後一張（被人碰/吃/槓拿走的牌）
+func RemoveLastDiscard(ctx context.Context, gameID string, playerID int) error {
+	key := PlayerDiscardsKey(gameID, playerID)
+	return service.RedisClient.RPop(ctx, key).Err()
+}
+
 // GetPlayerDiscards 讀取玩家的棄牌列表
 func GetPlayerDiscards(ctx context.Context, gameID string, playerID int) ([]models.Tile, error) {
 	key := PlayerDiscardsKey(gameID, playerID)

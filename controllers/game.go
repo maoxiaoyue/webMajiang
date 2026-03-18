@@ -648,7 +648,19 @@ func ResolveActions(ctx context.Context, gameID string, state *models.GameState)
 	}
 
 	if len(huPlayers) > 0 {
-		// 有人胡牌，進入結算階段，忽略所有的碰/槓/吃
+		// 有人胡牌 — 先喊「胡」，廣播讓大家看到，等 2 秒再結算
+		for _, hpID := range huPlayers {
+			BroadcastBotSpeech(hpID, "胡！")
+			utils.Info("[ResolveActions] 玩家 %d 喊胡！", hpID)
+		}
+		// 廣播當前狀態（讓前端看到誰在喊胡）
+		syncData := buildSyncStateData(gameID, state)
+		if globalHub != nil {
+			sendProtoBroadcast(globalHub, "sync_state", syncData)
+		}
+		time.Sleep(2 * time.Second)
+
+		// 進入結算階段，忽略所有的碰/槓/吃
 		state.Stage = models.StageRoundOver
 
 		// 根據與出牌者 (LastDiscardPlayerID) 的距離進行排序：下家(1) > 對家(2) > 上家(3)
@@ -758,28 +770,81 @@ func ResolveActions(ctx context.Context, gameID string, state *models.GameState)
 		targetTile := *(state.LastDiscardTile)
 		var meld models.Meld
 
+		// 從出牌者的棄牌列表中移除被拿走的牌
+		if err := RemoveLastDiscard(ctx, gameID, state.LastDiscardPlayerID); err != nil {
+			utils.Error("[ResolveActions] 移除棄牌失敗: %v", err)
+		}
+
 		switch winningAction {
 		case "kong":
 			// 明槓: 拿桌上一張，自己手上扣掉三張一樣的
 			removed, err := RemoveTilesFromPlayerHand(ctx, gameID, winnerID, 3, targetTile.Type, targetTile.Value)
-			if err == nil {
-				meld = models.Meld{
-					Type:  models.MeldTypeKong,
-					Tiles: append(removed, targetTile),
-				}
+			if err != nil {
+				utils.Error("[ResolveActions] 明槓移除手牌失敗: player=%d, tile=%s%d, err=%v",
+					winnerID, targetTile.Type.String(), targetTile.Value, err)
+				// 回退到 pass
+				state.Stage = models.StagePlayerDraw
+				state.CurrentPlayerID = (state.LastDiscardPlayerID % 4) + 1
+				state.LastDiscardTile = nil
+				return state, nil
+			}
+			meld = models.Meld{
+				Type:  models.MeldTypeKong,
+				Tiles: append(removed, targetTile),
 			}
 		case "pong":
 			// 碰: 拿桌上一張，自己手上扣掉兩張一樣的
 			removed, err := RemoveTilesFromPlayerHand(ctx, gameID, winnerID, 2, targetTile.Type, targetTile.Value)
-			if err == nil {
-				meld = models.Meld{
-					Type:  models.MeldTypePong,
-					Tiles: append(removed, targetTile),
-				}
+			if err != nil {
+				utils.Error("[ResolveActions] 碰牌移除手牌失敗: player=%d, tile=%s%d, err=%v",
+					winnerID, targetTile.Type.String(), targetTile.Value, err)
+				// 回退到 pass
+				state.Stage = models.StagePlayerDraw
+				state.CurrentPlayerID = (state.LastDiscardPlayerID % 4) + 1
+				state.LastDiscardTile = nil
+				return state, nil
+			}
+			meld = models.Meld{
+				Type:  models.MeldTypePong,
+				Tiles: append(removed, targetTile),
 			}
 		case "chow":
-			// TODO 吃牌邏輯：目前假設需要特定 API 來知道玩家要用哪兩張牌吃，暫時留空或簡單處理
-			utils.Info("Chow is not fully implemented yet for outdesk")
+			// 吃牌：從手牌中找兩張能和被吃的牌組成順子的牌
+			hand, handErr := GetPlayerHand(ctx, gameID, winnerID)
+			if handErr != nil {
+				utils.Error("[ResolveActions] 吃牌取得手牌失敗: player=%d, err=%v", winnerID, handErr)
+				state.Stage = models.StagePlayerDraw
+				state.CurrentPlayerID = (state.LastDiscardPlayerID % 4) + 1
+				state.LastDiscardTile = nil
+				return state, nil
+			}
+			chowTiles, found := FindChowTiles(hand, &targetTile)
+			if !found {
+				utils.Error("[ResolveActions] 吃牌找不到順子組合: player=%d, tile=%s%d",
+					winnerID, targetTile.Type.String(), targetTile.Value)
+				state.Stage = models.StagePlayerDraw
+				state.CurrentPlayerID = (state.LastDiscardPlayerID % 4) + 1
+				state.LastDiscardTile = nil
+				return state, nil
+			}
+			// 從手牌中移除這兩張牌
+			for _, ct := range chowTiles {
+				_, err := RemoveTilesFromPlayerHand(ctx, gameID, winnerID, 1, ct.Type, ct.Value)
+				if err != nil {
+					utils.Error("[ResolveActions] 吃牌移除手牌失敗: player=%d, tile=%s%d, err=%v",
+						winnerID, ct.Type.String(), ct.Value, err)
+					state.Stage = models.StagePlayerDraw
+					state.CurrentPlayerID = (state.LastDiscardPlayerID % 4) + 1
+					state.LastDiscardTile = nil
+					return state, nil
+				}
+			}
+			// 順子副露：被吃的牌 + 手牌中的兩張
+			allChowTiles := append(chowTiles, targetTile)
+			meld = models.Meld{
+				Type:  models.MeldTypeChow,
+				Tiles: allChowTiles,
+			}
 		}
 
 		if len(meld.Tiles) > 0 {
@@ -824,6 +889,211 @@ func ResolveActions(ctx context.Context, gameID string, state *models.GameState)
 	return state, nil
 }
 
+// FindConcealedKongs 在手牌中尋找可暗槓的組合 (4 張同花色同數值)
+// 回傳所有可暗槓的牌組，每組以 (Type, Value) 表示
+func FindConcealedKongs(hand []models.Tile) []models.Tile {
+	// 統計每種牌的數量
+	type tileKey struct {
+		Type  models.TileType
+		Value int
+	}
+	counts := make(map[tileKey]int)
+	for _, t := range hand {
+		counts[tileKey{t.Type, t.Value}]++
+	}
+
+	var result []models.Tile
+	for k, count := range counts {
+		if count >= 4 {
+			// 回傳一張代表牌（用於識別要槓哪種牌）
+			for _, t := range hand {
+				if t.Type == k.Type && t.Value == k.Value {
+					result = append(result, t)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
+// ConcealedKongAction 暗槓動作
+// 從玩家手牌移除 4 張同樣的牌，建立 MeldTypeHiddenKong 副露，從嶺上補一張牌
+// Stage 保持 PLAYER_DISCARD（暗槓後繼續出牌，但因為補了牌所以手牌數不變）
+func ConcealedKongAction(ctx context.Context, gameID string, playerID int, tileType models.TileType, tileValue int) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+
+	if state.Stage != models.StagePlayerDiscard {
+		return nil, fmt.Errorf("暗槓 not allowed in current stage: %s", state.Stage)
+	}
+
+	if state.CurrentPlayerID != playerID {
+		return nil, fmt.Errorf("not your turn, current player is %d", state.CurrentPlayerID)
+	}
+
+	rdb := service.RedisClient
+
+	// 1. 從手牌移除 4 張同樣的牌
+	removed, err := RemoveTilesFromPlayerHand(ctx, gameID, playerID, 4, tileType, tileValue)
+	if err != nil {
+		return nil, fmt.Errorf("暗槓移除手牌失敗: %w", err)
+	}
+
+	// 2. 建立暗槓副露
+	meld := models.Meld{
+		Type:  models.MeldTypeHiddenKong,
+		Tiles: removed,
+	}
+	meldsKey := PlayerMeldsKey(gameID, playerID)
+	meldJSON, _ := json.Marshal(meld)
+	rdb.RPush(ctx, meldsKey, string(meldJSON))
+
+	utils.Info("[ConcealedKong] Player%d 暗槓: %s %d", playerID, tileType.String(), tileValue)
+
+	// 3. 從嶺上 (LPop) 補一張牌
+	state.IsAfterKong = true
+	deckKey := DeckRedisKey(gameID)
+	replacementJSON, err := rdb.LPop(ctx, deckKey).Result()
+	if err != nil {
+		return nil, fmt.Errorf("暗槓補牌失敗 (牌堆已空): %w", err)
+	}
+	var rt models.Tile
+	if err := json.Unmarshal([]byte(replacementJSON), &rt); err != nil {
+		return nil, fmt.Errorf("暗槓補牌 unmarshal 失敗: %w", err)
+	}
+
+	// 補牌加入手牌
+	playerKey := PlayerHandKey(gameID, playerID)
+	rtJSON, _ := json.Marshal(rt)
+	rdb.LPush(ctx, playerKey, string(rtJSON))
+	utils.Info("[ConcealedKong] Player%d 嶺上補牌: %v", playerID, rt)
+
+	// 4. 處理補到花牌的情況
+	if rt.Type == models.Flower {
+		utils.Info("[ConcealedKong] Player%d 補到花牌，需再補", playerID)
+		// 將花牌從手牌移到花牌列表
+		_ = RemoveTileFromPlayerHand(ctx, gameID, playerID, rt)
+		flowersKey := PlayerFlowersKey(gameID, playerID)
+		rdb.RPush(ctx, flowersKey, string(rtJSON))
+		// 再補一張
+		replacementJSON2, err := rdb.LPop(ctx, deckKey).Result()
+		if err != nil {
+			utils.Error("[ConcealedKong] 花牌再補失敗: %v", err)
+		} else {
+			var rt2 models.Tile
+			if err := json.Unmarshal([]byte(replacementJSON2), &rt2); err == nil {
+				rtJSON2, _ := json.Marshal(rt2)
+				rdb.LPush(ctx, playerKey, string(rtJSON2))
+				utils.Info("[ConcealedKong] Player%d 花牌替換補牌: %v", playerID, rt2)
+			}
+		}
+	}
+
+	// Stage 保持 PLAYER_DISCARD（暗槓後需要出牌）
+	state.Stage = models.StagePlayerDiscard
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+
+	return state, nil
+}
+
+// AddKongAction 加槓：手牌中有一張牌和已碰的副露相同，將碰升級為明槓
+// 加槓的 4 張牌全部翻開（MeldTypeAddKong = 5）
+func AddKongAction(ctx context.Context, gameID string, playerID int, tileType models.TileType, tileValue int) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+
+	if state.Stage != models.StagePlayerDiscard {
+		return nil, fmt.Errorf("加槓 not allowed in current stage: %s", state.Stage)
+	}
+
+	if state.CurrentPlayerID != playerID {
+		return nil, fmt.Errorf("not your turn, current player is %d", state.CurrentPlayerID)
+	}
+
+	rdb := service.RedisClient
+
+	// 1. 從手牌移除 1 張匹配的牌
+	removed, err := RemoveTilesFromPlayerHand(ctx, gameID, playerID, 1, tileType, tileValue)
+	if err != nil {
+		return nil, fmt.Errorf("加槓移除手牌失敗: %w", err)
+	}
+
+	// 2. 找到對應的碰副露，升級為加槓
+	meldsKey := PlayerMeldsKey(gameID, playerID)
+	meldJSONs, _ := rdb.LRange(ctx, meldsKey, 0, -1).Result()
+	found := false
+	for i, mj := range meldJSONs {
+		var m models.Meld
+		if json.Unmarshal([]byte(mj), &m) != nil {
+			continue
+		}
+		if m.Type == models.MeldTypePong && len(m.Tiles) > 0 &&
+			m.Tiles[0].Type == tileType && m.Tiles[0].Value == tileValue {
+			// 升級為加槓
+			m.Type = models.MeldTypeAddKong
+			m.Tiles = append(m.Tiles, removed[0])
+			newJSON, _ := json.Marshal(m)
+			rdb.LSet(ctx, meldsKey, int64(i), string(newJSON))
+			found = true
+			utils.Info("[AddKong] Player%d 加槓: %s %d", playerID, tileType.String(), tileValue)
+			break
+		}
+	}
+
+	if !found {
+		return nil, fmt.Errorf("找不到對應的碰副露: %s %d", tileType.String(), tileValue)
+	}
+
+	// 3. 從嶺上補一張牌
+	state.IsAfterKong = true
+	deckKey := DeckRedisKey(gameID)
+	replacementJSON, err := rdb.LPop(ctx, deckKey).Result()
+	if err != nil {
+		return nil, fmt.Errorf("加槓補牌失敗 (牌堆已空): %w", err)
+	}
+	var rt models.Tile
+	if err := json.Unmarshal([]byte(replacementJSON), &rt); err != nil {
+		return nil, fmt.Errorf("加槓補牌 unmarshal 失敗: %w", err)
+	}
+
+	playerKey := PlayerHandKey(gameID, playerID)
+	rtJSON, _ := json.Marshal(rt)
+	rdb.LPush(ctx, playerKey, string(rtJSON))
+	utils.Info("[AddKong] Player%d 嶺上補牌: %v", playerID, rt)
+
+	// 4. 處理補到花牌
+	if rt.Type == models.Flower {
+		utils.Info("[AddKong] Player%d 補到花牌，需再補", playerID)
+		_ = RemoveTileFromPlayerHand(ctx, gameID, playerID, rt)
+		flowersKey := PlayerFlowersKey(gameID, playerID)
+		rdb.RPush(ctx, flowersKey, string(rtJSON))
+		replacementJSON2, err := rdb.LPop(ctx, deckKey).Result()
+		if err != nil {
+			utils.Error("[AddKong] 花牌再補失敗: %v", err)
+		} else {
+			var rt2 models.Tile
+			if err := json.Unmarshal([]byte(replacementJSON2), &rt2); err == nil {
+				rtJSON2, _ := json.Marshal(rt2)
+				rdb.LPush(ctx, playerKey, string(rtJSON2))
+				utils.Info("[AddKong] Player%d 花牌替換補牌: %v", playerID, rt2)
+			}
+		}
+	}
+
+	state.Stage = models.StagePlayerDiscard
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
 // NextRound 進入下一局
 func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, error) {
 	state, err := LoadGameState(ctx, gameID)
@@ -858,7 +1128,36 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 		_ = SaveGameStatus(ctx, gameID, status)
 	}
 
+	// 清除上一局的 Redis 資料（手牌、棄牌、副露、花牌）
+	if err := ClearRoundData(ctx, gameID); err != nil {
+		utils.Error("[NextRound] 清除上局資料失敗: %v", err)
+	}
+
+	// 重置遊戲狀態中的回合相關欄位
+	state.WinnerIDs = nil
+	state.ScoreResults = nil
+	state.ActionDeclarations = make(map[int]string)
+	state.LastDiscardPlayerID = 0
+	state.LastDiscardTile = nil
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, false, err
+	}
+
 	return state, false, nil
+}
+
+// ClearRoundData 清除一局結束後的 Redis 暫存資料
+func ClearRoundData(ctx context.Context, gameID string) error {
+	rdb := service.RedisClient
+	for p := 1; p <= 4; p++ {
+		rdb.Del(ctx, PlayerHandKey(gameID, p))
+		rdb.Del(ctx, PlayerDiscardsKey(gameID, p))
+		rdb.Del(ctx, PlayerMeldsKey(gameID, p))
+		rdb.Del(ctx, PlayerFlowersKey(gameID, p))
+	}
+	rdb.Del(ctx, DeckRedisKey(gameID))
+	return nil
 }
 
 // DealTilesFromSeat 從指定莊家玩家 ID 開始發牌

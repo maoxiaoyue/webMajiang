@@ -14,6 +14,9 @@ logger:
   output: "stdout"
   color_enabled: true
 
+database:
+  dsn: "postgres://lobby:G7App%23123qk@192.168.50.202:5432/lobby?sslmode=disable"
+
 redis:
   addr: "192.168.50.202:6379"
   password: "Mephisto80"

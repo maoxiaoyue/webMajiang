@@ -108,8 +108,15 @@ export class GameSceneSetup extends Component {
         const selfHandView = handNodes[0].addComponent(HandView);
         selfHandView.isSelf = true;
 
-        // 9. 顯示 demo 手牌（僅無 LobbyBridge 時使用，有真實連線時由 sync_state 驅動）
-        if (!(window as any).__LOBBY_PARAMS__) {
+        // 9. 砌牌動畫（進入牌桌就開始）
+        const params = (window as any).__LOBBY_PARAMS__;
+        const gameType = params?.gameType || 16;
+        const stacksPerWall = gameType === 13 ? 17 : 18;
+        wallView.buildWall(stacksPerWall);
+        this._gameView!._wallBuilt = true;
+
+        // 10. 顯示 demo 手牌（僅無 LobbyBridge 時使用，有真實連線時由 sync_state 驅動）
+        if (!params) {
             this.showDemoHand(selfHandView, handNodes);
         }
 

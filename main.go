@@ -18,6 +18,9 @@ import (
 
 // AppConfig 應用程式配置（包含 Redis）
 type AppConfig struct {
+	Database struct {
+		DSN string `yaml:"dsn"`
+	} `yaml:"database"`
 	Redis service.RedisConfig `yaml:"redis"`
 	SMTP  utils.SMTPConfig    `yaml:"smtp"`
 	JWT   struct {
@@ -55,6 +58,13 @@ func main() {
 	} else {
 		defer service.CloseRedis()
 		log.Info("Redis connected at %s", appCfg.Redis.Addr)
+	}
+
+	// 初始化對話字典（從 PostgreSQL 載入到記憶體）
+	if appCfg.Database.DSN != "" {
+		if err := service.InitConversations(appCfg.Database.DSN); err != nil {
+			log.Warn("Failed to load conversations: %v", err)
+		}
 	}
 
 	// 初始化 Utils

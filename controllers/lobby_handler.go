@@ -16,6 +16,8 @@ type lobbyPlayerInfo struct {
 	SeatID   int    `json:"seat_id"`
 	PlayerID string `json:"player_id"`
 	Name     string `json:"name"`
+	Nickname string `json:"nickname"`
+	Points   int64  `json:"points"`
 	IsBot    bool   `json:"is_bot"`
 }
 
@@ -60,10 +62,12 @@ func CreateGameFromLobbyHandler(c *hypcontext.Context) {
 			continue
 		}
 		players[seatID] = models.Player{
-			ID:    seatID,
-			Name:  p.Name,
-			IsBot: p.IsBot,
-			Hand:  []models.Tile{},
+			ID:       seatID,
+			Name:     p.Name,
+			Nickname: p.Nickname,
+			Points:   p.Points,
+			IsBot:    p.IsBot,
+			Hand:     []models.Tile{},
 		}
 	}
 
