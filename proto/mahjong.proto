@@ -31,6 +31,7 @@ message PlayerInfo {
     // 手牌與棄牌
     repeated int32 hand_tiles = 11;      // 手牌 ID 列表
     repeated int32 discarded_tiles = 12; // 棄牌 ID 列表
+    int32 seat_wind = 13;                // 門風 (1=東, 2=南, 3=西, 4=北), 整場不變
 }
 
 message MeldData {
@@ -51,6 +52,8 @@ message SyncStateData {
     repeated string winner_ids = 7;      // 遊戲結束時多位贏家的 ID 列表
     int32 last_discarded_tile_id = 8;    // 最後被打出的牌 ID (-1 表示無)
     string last_discard_player_id = 9;   // 最後出牌者的 ID (用於判斷自摸 vs 胡)
+    int32 dealer_seat_wind = 10;          // 莊家的門風 (1=東, 2=南, 3=西, 4=北)
+    string round_label = 11;             // 局號標籤 (如 "東風東", "東風南")
 }
 
 // 發給特定玩家的發牌資訊

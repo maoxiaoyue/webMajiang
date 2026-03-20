@@ -75,6 +75,7 @@ export class GameSceneSetup extends Component {
 
         // 3. 牌牆容器 (在棄牌區之下，中央面板之上)
         const wallNode = uiNode('TileWall');
+        wallNode.setPosition(0, 20, 0);
         rootNode.addChild(wallNode);
         const wallView = wallNode.addComponent(WallView);
 
@@ -197,7 +198,7 @@ export class GameSceneSetup extends Component {
         // 圈風標題
         const windTitleNode = uiNode('WindTitle');
         const windTitleLabel = windTitleNode.addComponent(Label);
-        windTitleLabel.string = '圈風';
+        windTitleLabel.string = '';
         windTitleLabel.fontSize = 16;
         windTitleLabel.color = new Color(200, 170, 80, 255);
         windTitleNode.setPosition(0, 55, 0);
@@ -206,7 +207,7 @@ export class GameSceneSetup extends Component {
         // 圈風值 (大字)
         const windNode = uiNode('WindLabel');
         const windLabel = windNode.addComponent(Label);
-        windLabel.string = '東';
+        windLabel.string = '東風';
         windLabel.fontSize = 42;
         windLabel.color = Color.WHITE;
         windLabel.isBold = true;
@@ -225,7 +226,7 @@ export class GameSceneSetup extends Component {
         // 局數提示
         const roundNode = uiNode('RoundLabel');
         const roundLabel = roundNode.addComponent(Label);
-        roundLabel.string = '第 1 局';
+        roundLabel.string = '東風東';
         roundLabel.fontSize = 14;
         roundLabel.color = new Color(150, 150, 150, 255);
         roundNode.setPosition(0, -65, 0);
@@ -308,9 +309,9 @@ export class GameSceneSetup extends Component {
         const panels: Node[] = [];
         const infoConfigs = [
             { x: 400, y: -250, seat: '東' },     // 0: 自己 (右下角)
-            { x: 520, y: 180, seat: '南' },      // 1: 右方 (右側)
+            { x: 470, y: 180, seat: '南' },      // 1: 右方/下家 (右側)
             { x: -400, y: 255, seat: '西' },     // 2: 對面 (左上角)
-            { x: -520, y: -180, seat: '北' },    // 3: 左方 (左側)
+            { x: -470, y: -190, seat: '北' },    // 3: 左方/上家 (左側)
         ];
 
         const PW = 100, PH = 36;

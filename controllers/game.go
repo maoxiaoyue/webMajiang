@@ -305,6 +305,15 @@ func RollDealer(ctx context.Context, gameID string) (*models.GameState, error) {
 	state.DealerPlayerID = DetermineDealerByDice(dice.Total)
 	state.Stage = models.StageDealing // 準備發牌
 
+	// 只在第一局設定門風，之後整場不變
+	if state.SeatWinds == nil {
+		state.SeatWinds = make(map[int]int)
+		for i := 0; i < 4; i++ {
+			seatID := ((state.DealerPlayerID - 1 + i) % 4) + 1
+			state.SeatWinds[seatID] = i + 1 // 1=東, 2=南, 3=西, 4=北
+		}
+	}
+
 	if err := SaveGameState(ctx, state); err != nil {
 		return nil, err
 	}
@@ -1112,27 +1121,45 @@ func AddKongAction(ctx context.Context, gameID string, playerID int, tileType mo
 }
 
 // NextRound 進入下一局
+// 連莊規則：莊家胡牌或自摸 → 保持同一莊家、同一局號（連莊）
+// 否則 → 莊家輪轉、局號推進
 func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, error) {
 	state, err := LoadGameState(ctx, gameID)
 	if err != nil {
 		return nil, false, err
 	}
 
-	nextRound, isComplete := state.Round.NextRound()
-	if isComplete {
-		state.IsFinished = true
-		state.Stage = models.StageGameOver
-		if err := SaveGameState(ctx, state); err != nil {
-			return nil, true, err
+	// 檢查是否連莊：莊家在 WinnerIDs 中 → 不換莊、不推進局號
+	dealerWon := false
+	for _, wid := range state.WinnerIDs {
+		if wid == state.DealerPlayerID {
+			dealerWon = true
+			break
 		}
-		return state, true, nil // 一將結束
 	}
 
-	// 更新局號，莊家順轉（下家做莊）
-	state.Round = nextRound
-	state.DealerPlayerID = (state.DealerPlayerID % 4) + 1
-	state.Stage = models.StageDealing // 下一局回到洗牌/發牌階段
-	state.CurrentPlayerID = 0
+	if dealerWon {
+		// 連莊：保持同一局號、同一莊家
+		utils.Info("[NextRound] 連莊: player%d 繼續做莊, 局號 %s 不變", state.DealerPlayerID, state.Round.RoundLabel())
+		state.Stage = models.StageDealing
+		state.CurrentPlayerID = 0
+	} else {
+		// 下莊：推進局號、輪轉莊家
+		nextRound, isComplete := state.Round.NextRound()
+		if isComplete {
+			state.IsFinished = true
+			state.Stage = models.StageGameOver
+			if err := SaveGameState(ctx, state); err != nil {
+				return nil, true, err
+			}
+			return state, true, nil // 一將結束
+		}
+		state.Round = nextRound
+		state.DealerPlayerID = (state.DealerPlayerID % 4) + 1
+		utils.Info("[NextRound] 下莊: player%d 做莊, 局號推進至 %s", state.DealerPlayerID, nextRound.RoundLabel())
+		state.Stage = models.StageDealing
+		state.CurrentPlayerID = 0
+	}
 
 	if err := SaveGameState(ctx, state); err != nil {
 		return nil, false, err
@@ -1140,7 +1167,7 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 
 	// 更新遊戲狀況紀錄中的進度和莊家
 	if status, err := LoadGameStatus(ctx, gameID); err == nil {
-		status.Progress = nextRound.RoundCode()
+		status.Progress = state.Round.RoundCode()
 		status.Dealer = fmt.Sprintf("player%d", state.DealerPlayerID)
 		_ = SaveGameStatus(ctx, gameID, status)
 	}

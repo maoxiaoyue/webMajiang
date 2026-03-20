@@ -79,6 +79,7 @@ export interface PlayerInfo {
   hand_tiles?: number[];
   discarded_tiles?: number[];
   melds?: MeldData[];
+  seat_wind?: number;
 }
 
 export function encodePlayerInfo(message: PlayerInfo): Uint8Array {
@@ -324,6 +325,8 @@ export interface SyncStateData {
   current_turn_player_id?: string;
   game_state?: string;
   players?: PlayerInfo[];
+  dealer_seat_wind?: number;
+  round_label?: string;
 }
 
 export function encodeSyncStateData(message: SyncStateData): Uint8Array {

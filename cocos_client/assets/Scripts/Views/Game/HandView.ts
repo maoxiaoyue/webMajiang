@@ -20,7 +20,7 @@ const DEAL_DELAY_SEC = 0.12;
 const DEAL_ANIM_DURATION = 0.18;
 
 /** 副露與手牌的垂直間距 (px) */
-const OUTDESK_Y_OFFSET = 100;
+const OUTDESK_Y_OFFSET = 90;
 /** 副露牌之間的間距 (px) */
 const MELD_SPACING = 55;
 /** 每組副露之間的距離 (px) */
@@ -159,9 +159,12 @@ export class HandView extends Component {
         }
         this._outdeskNodes = [];
 
+        // 對手的手牌容器被縮小 0.6，副露需補償回原始大小
+        const comp = this.isSelf ? 1 : (1 / 0.6);
+
         // 計算起始位置 (最左側開始排)
-        let currentX = -((16 * TILE_SPACING) / 2); // 預設以 16 張牌寬度作為基準左側
-        const startY = OUTDESK_Y_OFFSET;
+        let currentX = -((16 * TILE_SPACING * comp) / 2);
+        const startY = OUTDESK_Y_OFFSET * comp;
 
         // 1. 繪製花牌
         if (flowers && flowers.length > 0) {

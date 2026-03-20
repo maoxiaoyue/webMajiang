@@ -24,6 +24,7 @@ export class PlayerInfoView extends Component {
 
     private _seatIndex: number = 0;
     private _seatWindLabel: Label | null = null;
+    private _windBadgeG: Graphics | null = null;
     private _nameLabel: Label | null = null;
     private _scoreLabel: Label | null = null;
     private _statusIndicator: Node | null = null;
@@ -40,16 +41,16 @@ export class PlayerInfoView extends Component {
         const windBadge = uiNode('WindBadge');
         const windBadgeT = windBadge.addComponent(UITransform);
         windBadgeT.setContentSize(new Size(18, 18));
-        windBadge.setPosition(-36, 0, 0);
+        windBadge.setPosition(-50, 0, 0);
 
-        const windG = windBadge.addComponent(Graphics);
-        windG.fillColor = this.getWindColor(seatWind);
-        windG.circle(0, 0, 9);
-        windG.fill();
+        this._windBadgeG = windBadge.addComponent(Graphics);
+        this._windBadgeG.fillColor = new Color(100, 100, 100, 200);
+        this._windBadgeG.circle(0, 0, 9);
+        this._windBadgeG.fill();
 
         const windLabelNode = uiNode('WindText');
         this._seatWindLabel = windLabelNode.addComponent(Label);
-        this._seatWindLabel.string = seatWind;
+        this._seatWindLabel.string = '';
         this._seatWindLabel.fontSize = 11;
         this._seatWindLabel.color = Color.WHITE;
         this._seatWindLabel.isBold = true;
@@ -130,6 +131,35 @@ export class PlayerInfoView extends Component {
         if (this._seatWindLabel) {
             this._seatWindLabel.string = wind;
         }
+        if (this._windBadgeG && wind) {
+            this._windBadgeG.clear();
+            this._windBadgeG.fillColor = this.getWindColor(wind);
+            this._windBadgeG.circle(0, 0, 9);
+            this._windBadgeG.fill();
+        }
+    }
+
+    private _dealerLabel: Label | null = null;
+
+    private _showDealerBadge(): void {
+        if (!this._dealerLabel) {
+            const node = new Node('DealerBadge');
+            const label = node.addComponent(Label);
+            label.string = '莊家';
+            label.fontSize = 12;
+            label.color = new Color(255, 80, 80, 255);
+            label.isBold = true;
+            node.setPosition(0, -20, 0);
+            this.node.addChild(node);
+            this._dealerLabel = label;
+        }
+        this._dealerLabel.node.active = true;
+    }
+
+    private _hideDealerBadge(): void {
+        if (this._dealerLabel) {
+            this._dealerLabel.node.active = false;
+        }
     }
 
     private onGameStateChanged(modelInfo: any): void {
@@ -138,6 +168,15 @@ export class PlayerInfoView extends Component {
         if (player) {
             const isCurrentTurn = modelInfo.currentTurnPlayerId === player.id;
             this.updateInfo(player.name || this._nameLabel?.string || '', player.score || 0, isCurrentTurn);
+            if (player.seatWind) {
+                const windNames = ['', '東', '南', '西', '北'];
+                this.updateSeatWind(windNames[player.seatWind] || '');
+            }
+            if (player.isDealer) {
+                this._showDealerBadge();
+            } else {
+                this._hideDealerBadge();
+            }
         }
     }
 

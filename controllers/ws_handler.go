@@ -191,8 +191,10 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 		state, err = RollDealer(ctx, gameID)
 		if err != nil {
 			utils.Error("[WS] RollDealer 失敗: %v", err)
-			syncData := buildSyncStateData(gameID, state)
-			sendProtoResponse(client, "sync_state", syncData)
+			sendProtoResponse(client, "error", &pb.PlayerActionRes{
+				Success: false,
+				Message: "擲骰失敗: " + err.Error(),
+			})
 			return
 		}
 
@@ -200,8 +202,10 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 		state, err = DealTilesAction(ctx, gameID)
 		if err != nil {
 			utils.Error("[WS] DealTilesAction 失敗: %v", err)
-			syncData := buildSyncStateData(gameID, state)
-			sendProtoResponse(client, "sync_state", syncData)
+			sendProtoResponse(client, "error", &pb.PlayerActionRes{
+				Success: false,
+				Message: "發牌失敗: " + err.Error(),
+			})
 			return
 		}
 
@@ -223,7 +227,7 @@ func handleJoinRoom(ctx context.Context, client *websocket.Client, action string
 		dealer, ok := state.Players[state.CurrentPlayerID]
 		if ok && dealer.IsBot {
 			go func() {
-				time.Sleep(6 * time.Second) // 等待前端發牌動畫完成
+				time.Sleep(10 * time.Second) // 等待前端發牌動畫完成 (牌牆+擲骰+風位+發牌 ≈ 8.5秒)
 				if err := ProcessAITurn(context.Background(), gameID, dealer); err != nil {
 					utils.Error("[WS] AI 莊家自動出牌失敗: %v", err)
 				}
@@ -991,6 +995,13 @@ func sendWSError(client *websocket.Client, action string, errorMsg string) {
 
 // 幫助函數：將 GameState 轉換為 protobuf 定義的 SyncStateData
 func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateData {
+	if state == nil {
+		utils.Error("[WS] buildSyncStateData: state is nil for game %s", gameID)
+		return &pb.SyncStateData{
+			RoomId:    gameID,
+			GameState: "ERROR",
+		}
+	}
 	// 轉換 GameState 狀態名稱
 	gameStateStr := string(state.Stage)
 
@@ -1075,6 +1086,14 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 		CurrentTurnPlayerId: fmt.Sprintf("%d", state.CurrentPlayerID),
 		GameState:           gameStateStr,
 		LastDiscardedTileId: lastDiscardedTileId,
+		RoundLabel:          state.Round.RoundLabel(),
+	}
+
+	// 莊家門風
+	if state.SeatWinds != nil {
+		if dw, ok := state.SeatWinds[state.DealerPlayerID]; ok {
+			syncData.DealerSeatWind = int32(dw)
+		}
 	}
 
 	// 處理多位贏家的資料傳遞
@@ -1108,6 +1127,13 @@ func buildSyncStateData(gameID string, state *models.GameState) *pb.SyncStateDat
 				pInfo.Name = player.Name
 			}
 			pInfo.Score = int32(player.Points)
+		}
+
+		// 設定門風 (來自 SeatWinds，整場不變)
+		if state.SeatWinds != nil {
+			if wind, ok := state.SeatWinds[p]; ok {
+				pInfo.SeatWind = int32(wind)
+			}
 		}
 
 		// 讀取手牌 (HandTiles)

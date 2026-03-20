@@ -116,6 +116,7 @@ export class WallView extends Component {
             wn.destroy();
         }
         this._wallNodes = [];
+        this.node.removeAllChildren();
     }
 
     // ── 建立單個牌墩 (2 張牌上下疊) ────────────────

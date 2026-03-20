@@ -21,6 +21,7 @@ export class GameView extends BaseView {
 
     // 圈風 Label
     public currentWindLabel: Label = null!;
+    public roundLabel: Label = null!;
 
     // 玩家手牌容器 (0: 本機玩家, 1: 右邊, 2: 對面, 3: 左邊)
     public playerHandNodes: Node[] = [];
@@ -146,8 +147,11 @@ export class GameView extends BaseView {
             this.remainingTilesLabel.string = `剩餘: ${modelInfo.remainingTiles}`;
         }
         if (this.currentWindLabel && modelInfo.currentWind != null) {
-            const windNames = ["東", "南", "西", "北"];
-            this.currentWindLabel.string = windNames[modelInfo.currentWind] || "東";
+            const windNames = ["東風", "南風", "西風", "北風"];
+            this.currentWindLabel.string = windNames[modelInfo.currentWind] || "東風";
+        }
+        if (this.roundLabel && modelInfo._roundLabel) {
+            this.roundLabel.string = modelInfo._roundLabel;
         }
 
         if (modelInfo.players) {

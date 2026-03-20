@@ -40,6 +40,8 @@ export class GameViewModel extends BaseViewModel<GameModel> {
         // protobuf decoder 回傳 snake_case 欄位名
         this.model.roomId = data.room_id || "";
         this.model.currentWind = data.current_wind || 0;
+        (this.model as any)._dealerSeatWind = data.dealer_seat_wind || 0;
+        (this.model as any)._roundLabel = data.round_label || "";
         this.model.remainingTiles = data.remaining_tiles ?? 144;
         this.model.currentTurnPlayerId = data.current_turn_player_id || "";
         // 處理 GameState 可能是帶有 scoreResults 的 JSON 字串情況
@@ -65,6 +67,18 @@ export class GameViewModel extends BaseViewModel<GameModel> {
         this.model.winnerIds = data.winner_ids || [];
 
         let lastDiscardedTileId = -1;
+        // last_discarded_tile_id 已在 protobuf decoder 中做 -1 解碼，這裡直接使用
+        if (data.last_discarded_tile_id != null && data.last_discarded_tile_id >= 0) {
+            lastDiscardedTileId = data.last_discarded_tile_id;
+        } else if (data.players && data.current_turn_player_id) {
+            // fallback: 從出牌者的 discarded_tiles 取最後一張
+            const _dPlayer = data.players.find((p: any) => p.id === data.current_turn_player_id);
+            if (_dPlayer && _dPlayer.discarded_tiles && _dPlayer.discarded_tiles.length > 0) {
+                lastDiscardedTileId = _dPlayer.discarded_tiles[_dPlayer.discarded_tiles.length - 1];
+            }
+        }
+        this.model.lastDiscardPlayerId = data.last_discard_player_id || "";
+
         if (data.players && Array.isArray(data.players)) {
             // 找到自己的絕對座位
             const selfPlayer = data.players.find((p: any) => p.id === this.model.selfPlayerId);
@@ -72,12 +86,6 @@ export class GameViewModel extends BaseViewModel<GameModel> {
                 this.model.selfSeatIndex = selfPlayer.seat || 0;
             }
             const selfSeat = this.model.selfSeatIndex >= 0 ? this.model.selfSeatIndex : 0;
-
-            // 在 WAIT_ACTION 階段，currentTurnPlayerId 還是剛出牌的玩家
-            const currentPlayer = data.players.find((p: any) => p.id === data.current_turn_player_id);
-            if (currentPlayer && currentPlayer.discarded_tiles && currentPlayer.discarded_tiles.length > 0) {
-                lastDiscardedTileId = currentPlayer.discarded_tiles[currentPlayer.discarded_tiles.length - 1];
-            }
 
             this.model.players = data.players.map((p: any) => {
                 const absSeat = p.seat || 0;
@@ -94,7 +102,9 @@ export class GameViewModel extends BaseViewModel<GameModel> {
                         type: m.type || 0,
                         tiles: m.tiles || []
                     })),
-                    flowers: p.flowers || []
+                    flowers: p.flowers || [],
+                    seatWind: p.seat_wind || 0,
+                    isDealer: (data.dealer_seat_wind > 0 && p.seat_wind === data.dealer_seat_wind)
                 } as PlayerData;
             });
         }

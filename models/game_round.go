@@ -157,6 +157,7 @@ type GameState struct {
 	IsAfterKong         bool                `json:"is_after_kong"`          // 是否剛槓牌 (用於計算槓上開花)
 	IsSelfDrawnWin      bool                `json:"is_self_drawn_win"`      // 胡牌方式: true=自摸, false=胡別人的棄牌
 	ScoreResults        map[int]ScoreResult `json:"score_results"`          // 紀錄每位贏家的台數與牌型結算
+	SeatWinds           map[int]int         `json:"seat_winds,omitempty"`   // 各座位的門風 (SeatID 1-4 → Wind 1=東,2=南,3=西,4=北), 整場不變
 }
 
 // MeldType 副露類型

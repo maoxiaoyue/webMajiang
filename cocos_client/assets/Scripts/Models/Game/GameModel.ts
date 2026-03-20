@@ -9,6 +9,8 @@ export interface PlayerData {
     discardedTiles: number[]; // 打出的牌
     melds: { type: number, tiles: number[] }[]; // 吃碰槓的牌
     flowers: number[]; // 花牌
+    seatWind: number; // 門風 (1=東, 2=南, 3=西, 4=北), 整場不變
+    isDealer: boolean; // 是否為莊家
 }
 
 /**
