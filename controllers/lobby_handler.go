@@ -83,6 +83,9 @@ func CreateGameFromLobbyHandler(c *hypcontext.Context) {
 		}
 	}
 
+	// 非同步清理過期遊戲 keys
+	go CleanupStaleGames(context.Background())
+
 	gameID := fmt.Sprintf("majiang_%d", time.Now().UnixNano())
 	ctx := context.Background()
 

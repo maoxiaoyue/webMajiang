@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"webmajiang/models"
@@ -327,6 +329,123 @@ func RollDealer(ctx context.Context, gameID string) (*models.GameState, error) {
 	return state, nil
 }
 
+// DrawWindTiles 抓位：擲骰決定起抓位置，隨機分配東南西北風牌，決定座位與莊家
+func DrawWindTiles(ctx context.Context, gameID string) (*models.GameState, error) {
+	state, err := LoadGameState(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+	if state.Stage != models.StageWaitingPlayers {
+		return nil, fmt.Errorf("action not allowed in current stage: %s", state.Stage)
+	}
+
+	// 1. 擲骰
+	var dice models.DiceResult
+	if state.GameType == models.GameType16 {
+		dice, err = RollDice3()
+	} else {
+		dice, err = RollDice()
+	}
+	if err != nil {
+		return nil, err
+	}
+	state.Dice = dice
+
+	// 2. 決定起抓位置
+	firstDrawSeat := DetermineDealerByDice(dice.Total)
+
+	// 3. 抓牌順序：從起抓位置逆時針
+	var drawOrder [4]int
+	for i := 0; i < 4; i++ {
+		drawOrder[i] = ((firstDrawSeat - 1 + i) % 4) + 1
+	}
+
+	// 4. 洗風牌：Fisher-Yates shuffle
+	rng, err := newChaCha20Rand()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RNG for wind shuffle: %w", err)
+	}
+	winds := [4]int{1, 2, 3, 4} // 東南西北
+	for i := 3; i > 0; i-- {
+		j := rng.Intn(i + 1)
+		winds[i], winds[j] = winds[j], winds[i]
+	}
+
+	// 5. 找出人類玩家的座位和抓到的風
+	playerSeat := 0
+	for sid, p := range state.Players {
+		if !p.IsBot {
+			playerSeat = sid
+			break
+		}
+	}
+
+	// 建立 wind → 原始座位 的映射
+	windToOrigSeat := make(map[int]int)
+	playerWind := 0
+	for i := 0; i < 4; i++ {
+		windToOrigSeat[winds[i]] = drawOrder[i]
+		if drawOrder[i] == playerSeat {
+			playerWind = winds[i]
+		}
+	}
+
+	// 記錄換位前的名稱（供前端動畫使用）
+	originalNames := make(map[int]string)
+	for sid, p := range state.Players {
+		name := p.Nickname
+		if name == "" {
+			name = p.Name
+		}
+		originalNames[sid] = name
+	}
+
+	// 6. 重新排座：玩家位置不變，bot 根據風位順序重新安排
+	// 從玩家位置逆時針：offset 0=玩家, 1=下家, 2=對家, 3=上家
+	// 對應風位：playerWind, playerWind+1, playerWind+2, playerWind+3
+	newPlayers := make(map[int]models.Player)
+	state.SeatWinds = make(map[int]int)
+	dealerSeat := 0
+	for offset := 0; offset < 4; offset++ {
+		newSeat := ((playerSeat - 1 + offset) % 4) + 1
+		wind := ((playerWind - 1 + offset) % 4) + 1
+		origSeat := windToOrigSeat[wind]
+		player := state.Players[origSeat]
+		player.ID = newSeat
+		newPlayers[newSeat] = player
+		state.SeatWinds[newSeat] = wind
+		if wind == 1 {
+			dealerSeat = newSeat
+		}
+	}
+	state.Players = newPlayers
+
+	// 7. 設定莊家與階段
+	state.DealerPlayerID = dealerSeat
+	state.Stage = models.StageDealing
+	state.WindDraw = &models.WindDrawResult{
+		ShuffledWinds: winds,
+		DrawOrder:     drawOrder,
+		FirstDrawSeat: firstDrawSeat,
+		OriginalNames: originalNames,
+	}
+
+	if err := SaveGameState(ctx, state); err != nil {
+		return nil, err
+	}
+
+	// 更新遊戲狀況紀錄中的莊家
+	if status, err := LoadGameStatus(ctx, gameID); err == nil {
+		status.Dealer = fmt.Sprintf("player%d", dealerSeat)
+		_ = SaveGameStatus(ctx, gameID, status)
+	}
+
+	log.Printf("[DrawWindTiles] gameID=%s dice=%d firstDraw=seat%d drawOrder=%v winds=%v dealer=seat%d",
+		gameID, dice.Total, firstDrawSeat, drawOrder, winds, dealerSeat)
+
+	return state, nil
+}
+
 // DealTilesAction 執行發牌流程 (含洗牌、發牌、理牌)
 // 13張玩法: 每人13張，莊家14張 (136張牌，不含花牌)
 // 16張玩法: 每人16張，莊家17張 (144張牌，含花牌)
@@ -469,6 +588,9 @@ func DiscardTileAction(ctx context.Context, gameID string, playerID int, tile mo
 		return nil, fmt.Errorf("not your turn to discard, current player is %d", state.CurrentPlayerID)
 	}
 
+	// 0.5 永遠從 ID 推算 tile 的 Type/Value（前端只傳 ID）
+	tile = models.TileFromID(tile.ID)
+
 	// 1. 從玩家手牌中移除該牌
 	if err := RemoveTileFromPlayerHand(ctx, gameID, playerID, tile); err != nil {
 		return nil, fmt.Errorf("failed to discard tile: %w", err)
@@ -505,14 +627,22 @@ func DrawTileAction(ctx context.Context, gameID string, playerID int) (*models.G
 		return nil, nil, fmt.Errorf("not your turn to draw, current player is %d", state.CurrentPlayerID)
 	}
 
-	// 檢查牌堆是否還有牌（荒莊流局檢查）
+	// 檢查牌堆剩餘牌數（臭莊檢查：十六張麻將剩 16 張 = 8 墩時結束）
 	deckCount, err := GetDeckCount(ctx, gameID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check deck count: %w", err)
 	}
-	if deckCount == 0 {
-		// 荒莊流局：牌堆已空
+	exhaustThreshold := int64(0)
+	if state.GameType == models.GameType16 {
+		exhaustThreshold = 16 // 十六張麻將：剩餘 16 張（8 墩）時臭莊
+	}
+	if deckCount <= exhaustThreshold {
+		// 臭莊（荒莊流局）：無人胡牌，牌堆不足
 		state.Stage = models.StageRoundOver
+		state.IsExhaustiveDraw = true
+		state.ConsecutiveDealer++ // 臭莊也算連莊
+		utils.Info("[DrawTile] 臭莊: 剩餘 %d 張, 門檻 %d, player%d 連莊第 %d 次",
+			deckCount, exhaustThreshold, state.DealerPlayerID, state.ConsecutiveDealer)
 		if err := SaveGameState(ctx, state); err != nil {
 			return nil, nil, err
 		}
@@ -675,13 +805,13 @@ func ResolveActions(ctx context.Context, gameID string, state *models.GameState)
 	if len(huPlayers) > 0 {
 		// 有人胡牌 — 先喊「胡」，廣播讓大家看到，等 2 秒再結算
 		for _, hpID := range huPlayers {
-			BroadcastBotSpeech(hpID, "胡！")
+			BroadcastBotSpeech(gameID, hpID, "胡！")
 			utils.Info("[ResolveActions] 玩家 %d 喊胡！", hpID)
 		}
 		// 廣播當前狀態（讓前端看到誰在喊胡）
 		syncData := buildSyncStateData(gameID, state)
 		if globalHub != nil {
-			sendProtoBroadcast(globalHub, "sync_state", syncData)
+			sendGameBroadcast(globalHub, gameID, "sync_state", syncData)
 		}
 		time.Sleep(2 * time.Second)
 
@@ -765,14 +895,37 @@ func ResolveActions(ctx context.Context, gameID string, state *models.GameState)
 				}
 			}
 
+			// 判斷是否海底撈月 (最後一張牌)
+			deckCount2, _ := GetDeckCount(ctx, gameID)
+			exhaustThreshold2 := int64(0)
+			if state.GameType == models.GameType16 {
+				exhaustThreshold2 = 16
+			}
+			isLastTile := deckCount2 <= exhaustThreshold2
+
+			// 取得門風
+			seatWind := models.WindPosition(0)
+			if state.SeatWinds != nil {
+				if sw, ok := state.SeatWinds[wid]; ok {
+					seatWind = models.WindPosition(sw)
+				}
+			}
+
 			// 建構計分上下文
 			scoreCtx := models.ScoringContext{
-				ClosedHand:  closedHand,
-				Melds:       melds,
-				WinningTile: winningTile,
-				IsSelfDrawn: discarderID == wid, // 如果出牌者是自己，代表是自摸
-				IsDealer:    state.DealerPlayerID == wid,
-				Flowers:     flowers,
+				GameType:          state.GameType,
+				ClosedHand:        closedHand,
+				Melds:             melds,
+				WinningTile:       winningTile,
+				IsSelfDrawn:       false,
+				IsDealer:          state.DealerPlayerID == wid,
+				Flowers:           flowers,
+				IsAfterKong:       state.IsAfterKong,
+				IsLastTile:        isLastTile,
+				PrevailingWind:    state.Round.PrevailingWind,
+				SeatWind:          seatWind,
+				ConsecutiveDealer: state.ConsecutiveDealer,
+				SeatID:            wid,
 			}
 
 			scoreResult := models.CalculateScore(scoreCtx)
@@ -1129,7 +1282,7 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 		return nil, false, err
 	}
 
-	// 檢查是否連莊：莊家在 WinnerIDs 中 → 不換莊、不推進局號
+	// 檢查是否連莊：莊家胡牌 或 臭莊 → 不換莊、不推進局號
 	dealerWon := false
 	for _, wid := range state.WinnerIDs {
 		if wid == state.DealerPlayerID {
@@ -1137,10 +1290,17 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 			break
 		}
 	}
+	isExhaustiveDraw := state.IsExhaustiveDraw
 
-	if dealerWon {
-		// 連莊：保持同一局號、同一莊家
-		utils.Info("[NextRound] 連莊: player%d 繼續做莊, 局號 %s 不變", state.DealerPlayerID, state.Round.RoundLabel())
+	if dealerWon || isExhaustiveDraw {
+		// 連莊：保持同一局號、同一莊家（莊家胡牌或臭莊）
+		reason := "莊家胡牌"
+		if isExhaustiveDraw {
+			reason = "臭莊"
+			state.ConsecutiveDealer++ // 臭莊連莊次數+1
+		}
+		utils.Info("[NextRound] 連莊(%s): player%d 繼續做莊, 局號 %s 不變, 連莊第 %d 次",
+			reason, state.DealerPlayerID, state.Round.RoundLabel(), state.ConsecutiveDealer)
 		state.Stage = models.StageDealing
 		state.CurrentPlayerID = 0
 	} else {
@@ -1184,6 +1344,7 @@ func NextRound(ctx context.Context, gameID string) (*models.GameState, bool, err
 	state.LastDiscardPlayerID = 0
 	state.LastDiscardTile = nil
 	state.IsSelfDrawnWin = false
+	state.IsExhaustiveDraw = false
 
 	if err := SaveGameState(ctx, state); err != nil {
 		return nil, false, err
@@ -1345,4 +1506,134 @@ func DealTilesFromSeat(ctx context.Context, gameID string, dealerPlayerID int, g
 	}
 
 	return nil
+}
+
+// DeleteGameKeys 刪除指定遊戲的所有 Redis keys
+func DeleteGameKeys(ctx context.Context, gameID string) {
+	rdb := service.RedisClient
+	keys := []string{
+		GameStateKey(gameID),
+		GameStatusKey(gameID),
+		DeckRedisKey(gameID),
+	}
+	for p := 1; p <= 4; p++ {
+		keys = append(keys,
+			PlayerHandKey(gameID, p),
+			PlayerDiscardsKey(gameID, p),
+			PlayerMeldsKey(gameID, p),
+			PlayerFlowersKey(gameID, p),
+		)
+	}
+	rdb.Del(ctx, keys...)
+}
+
+// CleanupStaleGames 掃描 Redis 中已結束或超過一天的遊戲並刪除相關 keys
+func CleanupStaleGames(ctx context.Context) {
+	rdb := service.RedisClient
+	now := time.Now()
+	oneDayAgo := now.Add(-24 * time.Hour)
+
+	var cursor uint64
+	var staleIDs []string
+	for {
+		keys, nextCursor, err := rdb.Scan(ctx, cursor, "mjgame:*:status", 100).Result()
+		if err != nil {
+			break
+		}
+		for _, k := range keys {
+			parts := strings.SplitN(k, ":", 3)
+			if len(parts) < 3 {
+				continue
+			}
+			gameID := parts[1]
+
+			// 檢查 timestamp：gameID 格式為 "majiang_<UnixNano>"
+			if isGameExpired(gameID, oneDayAgo) {
+				staleIDs = append(staleIDs, gameID)
+				continue
+			}
+
+			statusJSON, err := rdb.Get(ctx, k).Result()
+			if err != nil {
+				staleIDs = append(staleIDs, gameID)
+				continue
+			}
+			if strings.Contains(statusJSON, "finished") {
+				staleIDs = append(staleIDs, gameID)
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// 同時掃描 game:*:state（可能有 status 已刪但 state 殘留）
+	cursor = 0
+	scanned := make(map[string]bool)
+	for _, id := range staleIDs {
+		scanned[id] = true
+	}
+	for {
+		keys, nextCursor, err := rdb.Scan(ctx, cursor, "game:*:state", 100).Result()
+		if err != nil {
+			break
+		}
+		for _, k := range keys {
+			parts := strings.SplitN(k, ":", 3)
+			if len(parts) < 3 {
+				continue
+			}
+			gameID := parts[1]
+			if scanned[gameID] {
+				continue
+			}
+			if isGameExpired(gameID, oneDayAgo) {
+				staleIDs = append(staleIDs, gameID)
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	for _, gameID := range staleIDs {
+		DeleteGameKeys(ctx, gameID)
+	}
+
+	if len(staleIDs) > 0 {
+		log.Printf("[Cleanup] 清理 %d 個過期遊戲", len(staleIDs))
+	}
+}
+
+// isGameExpired 從 gameID 中的 timestamp 判斷是否超過 cutoff 時間
+func isGameExpired(gameID string, cutoff time.Time) bool {
+	// gameID 格式: "majiang_<UnixNano>"
+	idx := strings.LastIndex(gameID, "_")
+	if idx < 0 {
+		return false
+	}
+	tsStr := gameID[idx+1:]
+	var ts int64
+	if _, err := fmt.Sscanf(tsStr, "%d", &ts); err != nil {
+		return false
+	}
+	created := time.Unix(0, ts)
+	return created.Before(cutoff)
+}
+
+// StartCleanupRoutine 啟動定期清理 goroutine（每小時執行一次）
+func StartCleanupRoutine() {
+	go func() {
+		// 啟動後先清理一次
+		CleanupStaleGames(context.Background())
+
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			CleanupStaleGames(context.Background())
+		}
+	}()
+	log.Printf("[Cleanup] 定期清理 goroutine 已啟動（每小時執行）")
 }

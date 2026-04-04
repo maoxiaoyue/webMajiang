@@ -142,6 +142,33 @@ func (t Tile) String() string {
 	}
 }
 
+// TileFromID 從 0-indexed ID 推算 Tile 的 Type 和 Value
+// ID 編排: 萬(0-35) 筒(36-71) 條(72-107) 風(108-123) 元(124-135) 花(136-143)
+func TileFromID(id int) Tile {
+	t := Tile{ID: id}
+	switch {
+	case id < 36: // 萬
+		t.Type = Wan
+		t.Value = id/4 + 1
+	case id < 72: // 筒
+		t.Type = Tong
+		t.Value = (id-36)/4 + 1
+	case id < 108: // 條
+		t.Type = Tiao
+		t.Value = (id-72)/4 + 1
+	case id < 124: // 風
+		t.Type = Wind
+		t.Value = (id-108)/4 + 1
+	case id < 136: // 元
+		t.Type = Dragon
+		t.Value = (id-124)/4 + 1
+	default: // 花
+		t.Type = Flower
+		t.Value = id - 136 + 1
+	}
+	return t
+}
+
 // Player 玩家結構體
 type Player struct {
 	ID       int    `json:"id"`                // 玩家編號 (1-4)

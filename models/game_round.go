@@ -156,8 +156,19 @@ type GameState struct {
 	WinnerIDs           []int               `json:"winner_ids"`             // 遊戲結束時贏家的 ID 列表 (支援一砲多響)
 	IsAfterKong         bool                `json:"is_after_kong"`          // 是否剛槓牌 (用於計算槓上開花)
 	IsSelfDrawnWin      bool                `json:"is_self_drawn_win"`      // 胡牌方式: true=自摸, false=胡別人的棄牌
+	IsExhaustiveDraw    bool                `json:"is_exhaustive_draw"`     // 臭莊：剩餘 16 張時無人胡牌
+	ConsecutiveDealer   int                 `json:"consecutive_dealer"`     // 連莊次數 (含臭莊連莊)
 	ScoreResults        map[int]ScoreResult `json:"score_results"`          // 紀錄每位贏家的台數與牌型結算
 	SeatWinds           map[int]int         `json:"seat_winds,omitempty"`   // 各座位的門風 (SeatID 1-4 → Wind 1=東,2=南,3=西,4=北), 整場不變
+	WindDraw            *WindDrawResult     `json:"wind_draw,omitempty"`    // 抓位結果（開局抽風牌決定座位）
+}
+
+// WindDrawResult 抓位結果
+type WindDrawResult struct {
+	ShuffledWinds [4]int         `json:"shuffled_winds"`        // 打亂後的風牌 (1=東,2=南,3=西,4=北)
+	DrawOrder     [4]int         `json:"draw_order"`            // 抓牌順序 (seat IDs)
+	FirstDrawSeat int            `json:"first_draw_seat"`       // 骰到的位置（從這裡開始抓）
+	OriginalNames map[int]string `json:"original_names"`        // 換位前：seat → 玩家名稱
 }
 
 // MeldType 副露類型

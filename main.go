@@ -58,6 +58,7 @@ func main() {
 	} else {
 		defer service.CloseRedis()
 		log.Info("Redis connected at %s", appCfg.Redis.Addr)
+		controllers.StartCleanupRoutine()
 	}
 
 	// 初始化對話字典（從 PostgreSQL 載入到記憶體）
@@ -91,6 +92,7 @@ func main() {
 		},
 		func(client *websocket.Client) {
 			log.Info("Player disconnected: %s", client.ID)
+			controllers.OnClientDisconnect(client)
 		},
 		func(client *websocket.Client, msg *websocket.Message) {
 			log.Debug("Message from %s: type=%s", client.ID, msg.Type)

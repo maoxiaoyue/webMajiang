@@ -110,7 +110,7 @@ func RunPostResolve(ctx context.Context, gameID string) (*models.GameState, erro
 		// 廣播當前狀態（讓前端看到上家出牌或 pass 結果）
 		syncData := buildSyncStateData(gameID, state)
 		if globalHub != nil {
-			sendProtoBroadcast(globalHub, "sync_state", syncData)
+			sendGameBroadcast(globalHub, gameID, "sync_state", syncData)
 		}
 
 		// 每家之間至少間隔 1 秒
@@ -153,7 +153,7 @@ func RunPostResolve(ctx context.Context, gameID string) (*models.GameState, erro
 			// 碰/槓後的 Bot 發話
 			speech := service.GetRandomConversation("pong", "bot")
 			if speech != "" {
-				BroadcastBotSpeech(winner.ID, speech)
+				BroadcastBotSpeech(gameID, winner.ID, speech)
 			}
 			return runAIDiscard(ctx, gameID, winner)
 		}
@@ -351,14 +351,14 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 	// 2. 廣播 Bot 說話 + 等待 1.5 秒
 	speech := service.GetRandomConversation("draw", "bot")
 	if speech != "" {
-		BroadcastBotSpeech(player.ID, speech)
+		BroadcastBotSpeech(gameID, player.ID, speech)
 		utils.Info("[AI Turn] 玩家 %d 說: %s", player.ID, speech)
 	}
 
 	// 廣播摸牌後的狀態（讓前端看到輪到此 Bot）
 	syncData := buildSyncStateData(gameID, state)
 	if globalHub != nil {
-		sendProtoBroadcast(globalHub, "sync_state", syncData)
+		sendGameBroadcast(globalHub, gameID, "sync_state", syncData)
 	}
 
 	time.Sleep(1500 * time.Millisecond)
@@ -376,7 +376,7 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 			utils.Info("[AI Turn] 🀄 玩家 %d 暗槓: %s %d", player.ID, kt.Type.String(), kt.Value)
 			speechK := service.GetRandomConversation("pong", "bot")
 			if speechK != "" {
-				BroadcastBotSpeech(player.ID, speechK)
+				BroadcastBotSpeech(gameID, player.ID, speechK)
 			}
 			var err error
 			state, err = ConcealedKongAction(ctx, gameID, player.ID, kt.Type, kt.Value)
@@ -387,7 +387,7 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 			// 廣播暗槓後狀態
 			syncData2 := buildSyncStateData(gameID, state)
 			if globalHub != nil {
-				sendProtoBroadcast(globalHub, "sync_state", syncData2)
+				sendGameBroadcast(globalHub, gameID, "sync_state", syncData2)
 			}
 			time.Sleep(1000 * time.Millisecond)
 
@@ -405,7 +405,7 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 		utils.Info("[AI Turn] 🀄 玩家 %d 加槓: %s %d", player.ID, addKongTile.Type.String(), addKongTile.Value)
 		speechK := service.GetRandomConversation("pong", "bot")
 		if speechK != "" {
-			BroadcastBotSpeech(player.ID, speechK)
+			BroadcastBotSpeech(gameID, player.ID, speechK)
 		}
 		state, err = AddKongAction(ctx, gameID, player.ID, addKongTile.Type, addKongTile.Value)
 		if err != nil {
@@ -413,7 +413,7 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 		} else {
 			syncData3 := buildSyncStateData(gameID, state)
 			if globalHub != nil {
-				sendProtoBroadcast(globalHub, "sync_state", syncData3)
+				sendGameBroadcast(globalHub, gameID, "sync_state", syncData3)
 			}
 			time.Sleep(1000 * time.Millisecond)
 			// 加槓後重新取得手牌
@@ -428,12 +428,12 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 	if models.CanHu(hand) {
 		utils.Info("[AI Turn] 🌟 玩家 %d 自摸了！", player.ID)
 		// 先喊「自摸」，廣播狀態讓大家看到，再結算
-		BroadcastBotSpeech(player.ID, "自摸！")
+		BroadcastBotSpeech(gameID, player.ID, "自摸！")
 		// 廣播當前狀態（讓前端先看到誰在喊自摸）
 		if curState, loadErr := LoadGameState(ctx, gameID); loadErr == nil {
 			syncData := buildSyncStateData(gameID, curState)
 			if globalHub != nil {
-				sendProtoBroadcast(globalHub, "sync_state", syncData)
+				sendGameBroadcast(globalHub, gameID, "sync_state", syncData)
 			}
 		}
 		time.Sleep(2 * time.Second)
@@ -446,6 +446,67 @@ func runAIDrawAndDiscard(ctx context.Context, gameID string, player models.Playe
 		state.CurrentPlayerID = player.ID
 		state.WinnerIDs = []int{player.ID}
 		state.IsSelfDrawnWin = true
+
+		// 計算台數
+		rdb := service.RedisClient
+		var melds []models.Meld
+		meldsKey := PlayerMeldsKey(gameID, player.ID)
+		meldJSONs, _ := rdb.LRange(ctx, meldsKey, 0, -1).Result()
+		for _, mj := range meldJSONs {
+			var m models.Meld
+			if json.Unmarshal([]byte(mj), &m) == nil {
+				melds = append(melds, m)
+			}
+		}
+		var flowers []models.Tile
+		flowersKey := PlayerFlowersKey(gameID, player.ID)
+		flowerJSONs, _ := rdb.LRange(ctx, flowersKey, 0, -1).Result()
+		for _, fj := range flowerJSONs {
+			var t models.Tile
+			if json.Unmarshal([]byte(fj), &t) == nil {
+				flowers = append(flowers, t)
+			}
+		}
+		var winTile models.Tile
+		if len(hand) > 0 {
+			winTile = hand[len(hand)-1]
+		}
+		deckCount, _ := GetDeckCount(ctx, gameID)
+		exhaustThreshold := int64(0)
+		if state.GameType == models.GameType16 {
+			exhaustThreshold = 16
+		}
+		isLastTile := deckCount <= exhaustThreshold
+		seatWind := models.WindPosition(0)
+		if state.SeatWinds != nil {
+			if sw, ok := state.SeatWinds[player.ID]; ok {
+				seatWind = models.WindPosition(sw)
+			}
+		}
+		// ClosedHand 不含 WinningTile（CalculateScore 會自動 append）
+		closedHand := hand[:len(hand)-1]
+		scoreCtx := models.ScoringContext{
+			GameType:          state.GameType,
+			ClosedHand:        closedHand,
+			Melds:             melds,
+			WinningTile:       winTile,
+			IsSelfDrawn:       true,
+			IsDealer:          state.DealerPlayerID == player.ID,
+			Flowers:           flowers,
+			IsAfterKong:       state.IsAfterKong,
+			IsLastTile:        isLastTile,
+			PrevailingWind:    state.Round.PrevailingWind,
+			SeatWind:          seatWind,
+			ConsecutiveDealer: state.ConsecutiveDealer,
+			SeatID:            player.ID,
+		}
+		scoreResult := models.CalculateScore(scoreCtx)
+		if state.ScoreResults == nil {
+			state.ScoreResults = make(map[int]models.ScoreResult)
+		}
+		state.ScoreResults[player.ID] = scoreResult
+		utils.Info("[AI SelfDrawHu] 玩家 %d 自摸！TotalTai: %d, Patterns: %v", player.ID, scoreResult.TotalTai, scoreResult.Patterns)
+
 		if err := SaveGameState(ctx, state); err != nil {
 			return nil, err
 		}
@@ -471,7 +532,7 @@ func runAIDiscard(ctx context.Context, gameID string, player models.Player) (*mo
 	if curState, err := LoadGameState(ctx, gameID); err == nil {
 		syncData := buildSyncStateData(gameID, curState)
 		if globalHub != nil {
-			sendProtoBroadcast(globalHub, "sync_state", syncData)
+			sendGameBroadcast(globalHub, gameID, "sync_state", syncData)
 		}
 	}
 
@@ -484,7 +545,7 @@ func runAIDiscard(ctx context.Context, gameID string, player models.Player) (*mo
 	// 廣播 Bot 出牌說話
 	speech := service.GetRandomConversation("discard", "bot")
 	if speech != "" {
-		BroadcastBotSpeech(player.ID, speech)
+		BroadcastBotSpeech(gameID, player.ID, speech)
 	}
 
 	if _, err := DiscardTileAction(ctx, gameID, player.ID, discardTile); err != nil {
@@ -501,7 +562,7 @@ func runAIDiscard(ctx context.Context, gameID string, player models.Player) (*mo
 	if resultState != nil && resultState.Stage == models.StageWaitAction {
 		syncData := buildSyncStateData(gameID, resultState)
 		if globalHub != nil {
-			sendProtoBroadcast(globalHub, "sync_state", syncData)
+			sendGameBroadcast(globalHub, gameID, "sync_state", syncData)
 		}
 	}
 
@@ -538,7 +599,7 @@ func nudgeHumanPlayer(gameID string, humanPlayerID int) {
 	// 找一個 Bot 來說話催促
 	for _, p := range state.Players {
 		if p.IsBot {
-			BroadcastBotSpeech(p.ID, speech)
+			BroadcastBotSpeech(gameID, p.ID, speech)
 			utils.Info("[Nudge] Bot %d 催促真人玩家 %d: %s", p.ID, humanPlayerID, speech)
 			break
 		}
